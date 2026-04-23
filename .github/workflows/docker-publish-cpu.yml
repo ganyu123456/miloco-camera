@@ -1,0 +1,94 @@
+# ============================================================
+# CPU 镜像工作流：构建 amd64 + arm64 多平台镜像并推送至 GitHub Packages
+# 触发条件：push 到 main 分支 / 推送版本 tag (v*.*.*) / 手动触发
+# ============================================================
+name: Build & Push CPU Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # 自动解析为 <owner>/<repo>，如 dairoot/miloco-sdk
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-cpu:
+    name: Build CPU Image (amd64 + arm64)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write  # 允许写入 GitHub Packages
+
+    steps:
+      # ── 1. 拉取代码 ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. 开启 QEMU 以支持跨平台构建 ──────────────────────
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # ── 3. 创建多平台 Buildx 构建器 ─────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── 4. 登录 GitHub Container Registry ───────────────────
+      #     PR 时不推送，因此无需登录
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 5. 生成镜像 Tag 与 Label ─────────────────────────────
+      # 生成规则：
+      #   push main  → latest, sha-<short>
+      #   push v1.2.3 → v1.2.3, 1.2, latest, sha-<short>
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+
+      # ── 6. 构建并推送 CPU 镜像 ───────────────────────────────
+      #     platforms: amd64 对应 x86 服务器，arm64 对应树莓派/Apple M系列等
+      #     PR 时仅构建不推送（push: false）
+      - name: Build and push CPU image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── 7. 输出镜像摘要（Digest） ────────────────────────────
+      - name: Print image digest
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "## CPU 镜像已推送至 GitHub Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | 说明 |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`ghcr.io/${{ env.IMAGE_NAME }}:latest\` | 最新主线版本 |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`ghcr.io/${{ env.IMAGE_NAME }}:sha-$(git rev-parse --short HEAD)\` | 当前提交 |" >> $GITHUB_STEP_SUMMARY
