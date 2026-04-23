@@ -1,0 +1,171 @@
+# ============================================================
+# Windows 可执行文件打包工作流
+# 使用 PyInstaller 将项目打包为 .exe，双击即可运行
+#
+# GPU 支持说明：
+#   - NVIDIA GPU（NVDEC）：已安装 NVIDIA 显卡驱动（450+）即可自动启用 hevc_cuvid 硬解
+#   - 回退软解码：无 GPU 时自动使用 CPU 软解，不会报错
+#
+# 触发条件：推送版本 tag (v*.*.*) / 手动触发
+# ============================================================
+name: Build Windows Executable
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  APP_NAME: miloco-camera
+
+jobs:
+  build-windows-exe:
+    name: Package Windows EXE (amd64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    permissions:
+      contents: write  # 允许上传 Release 附件
+
+    steps:
+      # ── 1. 拉取代码 ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. 配置 Python 3.12 ──────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # ── 3. 安装项目依赖 ──────────────────────────────────────
+      # av (PyAV) Windows 预编译轮子包含 FFmpeg，内置支持：
+      #   · DXVA2 / D3D11VA（Windows 通用硬解，覆盖 Intel/AMD/NVIDIA）
+      #   · CUDA / CUVID（NVDEC，需要 NVIDIA 驱动 450+ 提供 nvcuda.dll）
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install flask "opencv-python-headless" pyinstaller
+
+      # ── 4. 验证关键依赖 ──────────────────────────────────────
+      - name: Verify av & cv2
+        run: |
+          python -c "import av; print('PyAV version:', av.__version__)"
+          python -c "import cv2; print('OpenCV version:', cv2.__version__)"
+          python -c "import miloco_sdk; print('miloco_sdk OK')"
+
+      # ── 5. 使用 PyInstaller 打包为单文件 .exe ─────────────────
+      # --onefile       : 打包为单个 .exe（双击即用）
+      # --console       : 保留控制台窗口（显示摄像头连接状态和服务地址）
+      # --collect-all av: 收集 PyAV 所有文件（含 FFmpeg DLL，GPU 解码必须）
+      # --add-data      : 打包 SDK 配置文件
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller `
+            --onefile `
+            --console `
+            --name "${{ env.APP_NAME }}" `
+            --add-data "miloco_sdk/configs;miloco_sdk/configs" `
+            --collect-all av `
+            --hidden-import miloco_sdk `
+            --hidden-import miloco_sdk.cli `
+            --hidden-import miloco_sdk.cli.utils `
+            --hidden-import miloco_sdk.plugin `
+            --hidden-import miloco_sdk.plugin.authorize `
+            --hidden-import miloco_sdk.plugin.home `
+            --hidden-import miloco_sdk.plugin.miot `
+            --hidden-import miloco_sdk.utils `
+            --hidden-import aiohttp `
+            --hidden-import cryptography `
+            --hidden-import flask `
+            --hidden-import cv2 `
+            examples/web_stream.py
+
+      # ── 6. 验证 .exe 生成成功 ────────────────────────────────
+      - name: Verify EXE exists
+        run: |
+          if (Test-Path "dist\${{ env.APP_NAME }}.exe") {
+            $size = (Get-Item "dist\${{ env.APP_NAME }}.exe").length / 1MB
+            Write-Host "✅ EXE 生成成功，大小: $([math]::Round($size,1)) MB"
+          } else {
+            Write-Host "❌ EXE 文件未找到"
+            exit 1
+          }
+
+      # ── 7. 创建发布包（EXE + 说明文件）─────────────────────
+      - name: Create distribution package
+        run: |
+          $distDir = "dist\${{ env.APP_NAME }}-windows"
+          New-Item -ItemType Directory -Force -Path $distDir
+          New-Item -ItemType Directory -Force -Path "$distDir\data"
+
+          # 复制主程序
+          Copy-Item "dist\${{ env.APP_NAME }}.exe" "$distDir\"
+
+          # 生成使用说明 README
+          $readme = @"
+          # Miloco Camera - Windows 版
+
+          ## 使用方法
+
+          1. 将您的 ``auth_info.json`` 文件放入 ``data\`` 目录
+          2. 双击运行 ``${{ env.APP_NAME }}.exe``
+          3. 程序启动后，在浏览器打开 http://localhost:8888 查看摄像头画面
+
+          ## GPU 硬件加速
+
+          - NVIDIA GPU：安装显卡驱动（版本 450+）后自动启用 NVDEC 硬解码
+          - 无 GPU：自动回退到 CPU 软解码，功能正常但性能稍低
+
+          ## data 目录说明
+
+          ``data\auth_info.json`` 存储小米账号授权信息，首次运行会引导您扫码登录。
+          "@ -replace '          ', ''
+
+          Set-Content -Path "$distDir\README.txt" -Value $readme -Encoding UTF8
+
+          # 打包为 ZIP
+          Compress-Archive -Path "$distDir\*" -DestinationPath "dist\${{ env.APP_NAME }}-windows.zip" -Force
+          Write-Host "✅ 发布包已创建: ${{ env.APP_NAME }}-windows.zip"
+
+      # ── 8. 上传构建产物（Artifacts，始终保留）────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-windows
+          path: dist/${{ env.APP_NAME }}-windows.zip
+          retention-days: 30
+
+      # ── 9. 上传至 GitHub Release（仅在推送 tag 时触发）────────
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ env.APP_NAME }}-windows.zip
+          generate_release_notes: true
+          body: |
+            ## Miloco Camera Windows 版
+
+            ### 下载说明
+            - **`${{ env.APP_NAME }}-windows.zip`**：Windows 可执行程序（双击运行）
+
+            ### GPU 支持
+            - NVIDIA GPU：安装显卡驱动（450+）自动启用 NVDEC 硬件加速解码
+            - 无 GPU：自动回退 CPU 软解，功能不受影响
+
+      # ── 10. 输出摘要 ─────────────────────────────────────────
+      - name: Print summary
+        run: |
+          $size = (Get-Item "dist\${{ env.APP_NAME }}.exe").length / 1MB
+          echo "## Windows 可执行文件打包完成" >> $env:GITHUB_STEP_SUMMARY
+          echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo "| 项目 | 详情 |" >> $env:GITHUB_STEP_SUMMARY
+          echo "|------|------|" >> $env:GITHUB_STEP_SUMMARY
+          echo "| 文件名 | ``${{ env.APP_NAME }}.exe`` |" >> $env:GITHUB_STEP_SUMMARY
+          echo "| 大小 | $([math]::Round($size,1)) MB |" >> $env:GITHUB_STEP_SUMMARY
+          echo "| 平台 | Windows amd64 |" >> $env:GITHUB_STEP_SUMMARY
+          echo "| GPU 支持 | NVDEC (需 NVIDIA 驱动 450+) / DXVA2 |" >> $env:GITHUB_STEP_SUMMARY
+          echo "| 入口 | examples/web_stream.py → http://localhost:8888 |" >> $env:GITHUB_STEP_SUMMARY

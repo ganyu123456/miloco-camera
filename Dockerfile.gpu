@@ -92,7 +92,11 @@ RUN mkdir -p /app/data && \
     fi
 
 # 从源码编译 PyAV，链接到带 NVDEC 的 ffmpeg
-RUN pip install --no-binary av av
+# 注：编译需要 gcc（build-essential），编译完成后立即移除以减小镜像体积
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && pip install --no-binary av av \
+    && apt-get purge -y --auto-remove build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # 安装项目其他依赖
 RUN pip install -e . && pip install flask opencv-python-headless
