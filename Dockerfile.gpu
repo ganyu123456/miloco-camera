@@ -1,0 +1,102 @@
+# ============================================================
+# Stage 1: 编译带 NVDEC 支持的 ffmpeg
+# ============================================================
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS ffmpeg-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 切换国内镜像 + 让 apt 不走代理（proxy 只给 git/wget 用）
+RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.163.com|g' /etc/apt/sources.list \
+    && sed -i 's|http://security.ubuntu.com|https://mirrors.163.com|g' /etc/apt/sources.list \
+    && echo 'Acquire::http::Proxy "DIRECT";' > /etc/apt/apt.conf.d/00noproxy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential yasm nasm pkg-config git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 NVIDIA Video Codec SDK 头文件（提供 NVDEC/NVENC 支持）
+RUN git clone --depth 1 https://git.videolan.org/git/ffmpeg/nv-codec-headers.git /tmp/nv-codec-headers \
+    && cd /tmp/nv-codec-headers && make install \
+    && rm -rf /tmp/nv-codec-headers
+
+# 编译 ffmpeg 6.1（仅开启必要组件，减少编译时间）
+RUN git clone --depth 1 -b n6.1.1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg \
+    && cd /tmp/ffmpeg \
+    && ./configure \
+        --prefix=/opt/ffmpeg \
+        --enable-shared \
+        --disable-static \
+        --disable-doc \
+        --disable-programs \
+        --disable-everything \
+        --enable-decoder=hevc,h264,hevc_cuvid,h264_cuvid \
+        --enable-parser=hevc,h264 \
+        --enable-bsf=hevc_mp4toannexb,h264_mp4toannexb \
+        --enable-ffnvcodec \
+        --enable-cuvid \
+        --enable-nvdec \
+        --extra-cflags="-I/usr/local/cuda/include" \
+        --extra-ldflags="-L/usr/local/cuda/lib64" \
+    && make -j$(nproc) \
+    && make install \
+    && rm -rf /tmp/ffmpeg
+
+# ============================================================
+# Stage 2: 运行时镜像
+# ============================================================
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+ENV LANG=C.UTF-8 TZ=Asia/Shanghai DEBIAN_FRONTEND=noninteractive
+
+# 切换国内镜像 + 让 apt 不走代理
+RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.163.com|g' /etc/apt/sources.list \
+    && sed -i 's|http://security.ubuntu.com|https://mirrors.163.com|g' /etc/apt/sources.list \
+    && echo 'Acquire::http::Proxy "DIRECT";' > /etc/apt/apt.conf.d/00noproxy
+
+# 从 builder 阶段复制编译好的 ffmpeg
+COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
+RUN echo "/opt/ffmpeg/lib" > /etc/ld.so.conf.d/ffmpeg.conf && ldconfig
+
+# 手动添加 deadsnakes PPA（不依赖 software-properties-common，避免拉取大量依赖）
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg \
+    && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
+       | gpg --dearmor -o /etc/apt/trusted.gpg.d/deadsnakes.gpg \
+    && echo "deb https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy main" \
+       > /etc/apt/sources.list.d/deadsnakes.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+       python3.12 python3.12-dev \
+       pkg-config \
+       libglib2.0-0 libgomp1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.12 \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && ln -sf /usr/local/bin/pip /usr/local/bin/pip3.12
+
+# 让 PyAV 编译时能找到我们的 ffmpeg
+ENV PKG_CONFIG_PATH=/opt/ffmpeg/lib/pkgconfig
+ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib:$LD_LIBRARY_PATH
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+
+ENV PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple
+ENV PIP_TRUSTED_HOST=mirrors.tencent.com
+
+WORKDIR /app
+
+COPY . .
+
+RUN mkdir -p /app/data && \
+    if [ -f data/auth_info.json ]; then \
+        cp data/auth_info.json /app/data/auth_info.json; \
+    fi
+
+# 从源码编译 PyAV，链接到带 NVDEC 的 ffmpeg
+RUN pip install --no-binary av av
+
+# 安装项目其他依赖
+RUN pip install -e . && pip install flask opencv-python-headless
+
+EXPOSE 8888
+
+CMD ["python", "examples/web_stream.py"]

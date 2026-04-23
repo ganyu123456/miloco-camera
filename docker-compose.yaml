@@ -1,0 +1,29 @@
+# ============================================================
+# 小米摄像头 Web 流服务 - CPU 版
+#   docker compose up -d
+# ============================================================
+
+services:
+  miloco-camera:
+    image: harbor.zkjgy.online/library/xiaomi-camera-web:latest
+    container_name: miloco-camera
+    restart: unless-stopped
+
+    # 使用宿主机网络，才能访问局域网内的摄像头
+    network_mode: host
+
+    environment:
+      - TZ=Asia/Shanghai
+      - LANG=C.UTF-8
+
+    volumes:
+      # 持久化 auth_info.json，重启容器不需要重新登录
+      - ./data:/app/data
+
+    # 健康检查（host 网络模式下无需 ports 映射，容器直接使用宿主机端口）
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

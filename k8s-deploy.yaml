@@ -1,0 +1,71 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: miloco-camera
+  namespace: default
+  labels:
+    app: miloco-camera
+  annotations:
+    deployment.kubernetes.io/revision: '2'
+    kubesphere.io/creator: admin
+    kubesphere.io/description: 视频解码服务
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: miloco-camera
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: miloco-camera
+      annotations:
+        kubesphere.io/creator: admin
+        kubesphere.io/imagepullsecrets: '{"xiaomi-camera-web":"harbor"}'
+        logging.kubesphere.io/logsidecar-config: '{}'
+    spec:
+      hostNetwork: true  # 关键：使用宿主机网络才能访问局域网摄像头
+      dnsPolicy: ClusterFirstWithHostNet  # 配合 hostNetwork 使用
+      runtimeClassName: nvidia  # 使用 NVIDIA 容器运行时（需要集群安装了 nvidia-device-plugin）
+      volumes:
+        - name: volume-bwl1fz
+          persistentVolumeClaim:
+            claimName: manual-nfs-pvc
+      containers:
+        - name: xiaomi-camera-web
+          image: 'harbor.zkjgy.online/library/xiaomi-camera-web:gpu'
+          ports:
+            - name: http-0
+              containerPort: 8888
+              protocol: TCP
+          resources:
+            limits:
+              cpu: '2'
+              memory: 4Gi
+              nvidia.com/gpu: '1'
+            requests:
+              cpu: '1'
+              memory: 2Gi
+              nvidia.com/gpu: '1'
+          volumeMounts:
+            - name: volume-bwl1fz
+              mountPath: /app/data
+              subPath: 'miloco-camera-data/data'
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: default
+      serviceAccount: default
+      securityContext: {}
+      imagePullSecrets:
+        - name: harbor
+      schedulerName: default-scheduler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600

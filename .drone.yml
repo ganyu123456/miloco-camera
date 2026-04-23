@@ -1,0 +1,141 @@
+# ============================================================
+# AMD64 流水线：构建 CPU 版 + GPU 版镜像
+# ============================================================
+kind: pipeline
+name: xiaomi-camera-web-amd64
+type: docker
+
+volumes:
+  - name: docker
+    host:
+      path: /var/run/docker.sock
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+steps:
+  # 构建 CPU 版镜像
+  - name: build-cpu
+    image: docker
+    environment:
+      http_proxy: http://192.168.2.3:7890
+      https_proxy: http://192.168.2.3:7890
+    commands:
+      - echo "🔨 [AMD64] 构建 CPU 版镜像..."
+      - docker build
+          --build-arg http_proxy=http://192.168.2.3:7890
+          --build-arg https_proxy=http://192.168.2.3:7890
+          -t harbor.zkjgy.online/library/xiaomi-camera-web:latest
+          -f ./Dockerfile .
+      - echo "✅ [AMD64] CPU 版镜像构建成功"
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+
+  # 构建 GPU 版镜像
+  - name: build-gpu
+    image: docker
+    environment:
+      http_proxy: http://192.168.2.3:7890
+      https_proxy: http://192.168.2.3:7890
+    commands:
+      - echo "🔨 [AMD64] 构建 GPU 版镜像（含 ffmpeg NVDEC 编译，耗时较长）..."
+      - docker build
+          --build-arg http_proxy=http://192.168.2.3:7890
+          --build-arg https_proxy=http://192.168.2.3:7890
+          -t harbor.zkjgy.online/library/xiaomi-camera-web:gpu
+          -f ./Dockerfile.gpu .
+      - echo "✅ [AMD64] GPU 版镜像构建成功"
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+
+  # 推送到 Harbor
+  - name: push-harbor-amd64
+    image: docker
+    environment:
+      HARBOR_USERNAME:
+        from_secret: harbor_username
+      HARBOR_PASSWORD:
+        from_secret: harbor_password
+    commands:
+      - echo "🔐 [AMD64] 登录 Harbor..."
+      - echo $HARBOR_PASSWORD | docker login harbor.zkjgy.online --username $HARBOR_USERNAME --password-stdin
+      - echo "📤 [AMD64] 推送 CPU 版镜像..."
+      - docker push harbor.zkjgy.online/library/xiaomi-camera-web:latest
+      - echo "📤 [AMD64] 推送 GPU 版镜像..."
+      - docker push harbor.zkjgy.online/library/xiaomi-camera-web:gpu
+      - echo "✅ [AMD64] 全部推送成功"
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    depends_on:
+      - build-cpu
+      - build-gpu
+
+---
+# ============================================================
+# ARM64 流水线：构建 CPU 版镜像（ARM 设备不需要 NVIDIA GPU）
+# ============================================================
+kind: pipeline
+name: xiaomi-camera-web-arm64
+type: docker
+
+depends_on: []
+
+platform:
+  os: linux
+  arch: arm64
+
+volumes:
+  - name: docker
+    host:
+      path: /var/run/docker.sock
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+steps:
+  # 构建 ARM64 镜像
+  - name: build-arm64
+    image: docker
+    environment:
+      http_proxy: http://192.168.2.3:7890
+      https_proxy: http://192.168.2.3:7890
+    commands:
+      - echo "🔨 [ARM64] 构建镜像..."
+      - docker build
+          --build-arg http_proxy=http://192.168.2.3:7890
+          --build-arg https_proxy=http://192.168.2.3:7890
+          -t harborarm.zkjgy.online/library/xiaomi-camera-web:latest
+          -f ./Dockerfile .
+      - echo "✅ [ARM64] 镜像构建成功"
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+
+  # 推送到 Harbor ARM
+  - name: push-harbor-arm64
+    image: docker
+    environment:
+      HARBOR_USERNAME:
+        from_secret: harbor_username
+      HARBOR_PASSWORD:
+        from_secret: harbor_password
+    commands:
+      - echo "🔐 [ARM64] 登录 Harbor ARM..."
+      - echo $HARBOR_PASSWORD | docker login harborarm.zkjgy.online --username $HARBOR_USERNAME --password-stdin
+      - echo "📤 [ARM64] 推送镜像..."
+      - docker push harborarm.zkjgy.online/library/xiaomi-camera-web:latest
+      - echo "✅ [ARM64] 推送成功"
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    depends_on:
+      - build-arm64
