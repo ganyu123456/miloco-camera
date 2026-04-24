@@ -2,6 +2,7 @@
 AI 视频网关 - FastAPI 应用入口
 """
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,7 +19,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent / "web" / "static"
+
+def _get_static_dir() -> Path:
+    """
+    PyInstaller --onefile 时资源在 sys._MEIPASS/web/static；
+    普通运行时在 app/web/static（相对于本文件）。
+    """
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS) / "web" / "static"
+    return Path(__file__).parent / "web" / "static"
+
+
+STATIC_DIR = _get_static_dir()
 
 
 @asynccontextmanager

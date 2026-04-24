@@ -98,7 +98,11 @@ jobs:
             --console `
             --name "${{ env.APP_NAME }}" `
             --add-data "miloco_sdk/configs;miloco_sdk/configs" `
+            --add-data "app/web/templates;web/templates" `
+            --add-data "app/web/static;web/static" `
             --collect-all av `
+            --collect-all uvicorn `
+            --collect-all jinja2 `
             --hidden-import miloco_sdk `
             --hidden-import miloco_sdk.cli `
             --hidden-import miloco_sdk.cli.utils `
@@ -110,9 +114,31 @@ jobs:
             --hidden-import aiohttp `
             --hidden-import cryptography `
             --hidden-import fastapi `
+            --hidden-import fastapi.responses `
+            --hidden-import fastapi.staticfiles `
+            --hidden-import fastapi.templating `
             --hidden-import uvicorn `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops `
+            --hidden-import uvicorn.loops.asyncio `
+            --hidden-import uvicorn.protocols `
+            --hidden-import uvicorn.protocols.http `
+            --hidden-import uvicorn.protocols.http.h11_impl `
+            --hidden-import uvicorn.protocols.websockets `
+            --hidden-import uvicorn.lifespan `
+            --hidden-import uvicorn.lifespan.on `
             --hidden-import sqlalchemy `
+            --hidden-import sqlalchemy.dialects.sqlite `
+            --hidden-import sqlalchemy.dialects.sqlite.aiosqlite `
+            --hidden-import aiosqlite `
+            --hidden-import aiofiles `
+            --hidden-import psutil `
+            --hidden-import pynvml `
             --hidden-import cv2 `
+            --hidden-import multipart `
+            --hidden-import email.mime.text `
+            --hidden-import email.mime.multipart `
+            --hidden-import smtplib `
             app/main.py
 
       # ── 7. 检查 EXE ──────────────────────────────────────────

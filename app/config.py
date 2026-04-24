@@ -1,8 +1,20 @@
 import os
+import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / "data"
+
+def _get_data_dir() -> Path:
+    """
+    用户持久化数据目录（DB / 截图等）。
+    · PyInstaller --onefile：放在 .exe 同级目录的 data/ 下，程序重启后数据不丢失。
+    · 普通运行：项目根目录的 data/ 下。
+    """
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent / "data"
+    return Path(__file__).parent.parent / "data"
+
+
+DATA_DIR = _get_data_dir()
 PICTURES_DIR = DATA_DIR / "pictures"
 
 DATA_DIR.mkdir(exist_ok=True)

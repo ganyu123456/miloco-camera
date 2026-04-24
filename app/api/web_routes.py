@@ -1,4 +1,5 @@
 """HTML 页面路由（Jinja2 模板）"""
+import sys
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -8,8 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 
-TEMPLATES_DIR = Path(__file__).parent.parent / "web" / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+def _get_templates_dir() -> Path:
+    """
+    PyInstaller --onefile 时模板在 sys._MEIPASS/web/templates；
+    普通运行时在 app/web/templates（相对于本文件上两级）。
+    """
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS) / "web" / "templates"
+    return Path(__file__).parent.parent / "web" / "templates"
+
+
+templates = Jinja2Templates(directory=str(_get_templates_dir()))
 
 router = APIRouter(tags=["web"])
 
