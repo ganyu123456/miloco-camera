@@ -103,6 +103,8 @@ jobs:
             --collect-all av `
             --collect-all uvicorn `
             --collect-all jinja2 `
+            --collect-all markupsafe `
+            --collect-all starlette `
             --hidden-import miloco_sdk `
             --hidden-import miloco_sdk.cli `
             --hidden-import miloco_sdk.cli.utils `
