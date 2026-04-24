@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% set active = "alerts" %}
+{% block title %}报警信息查询{% endblock %}
+{% block page_title %}报警信息查询{% endblock %}
+
+{% block content %}
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value" id="s-total" style="color:var(--red)">—</div>
+    <div class="stat-label">报警总数</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="s-unnotified" style="color:var(--yellow)">—</div>
+    <div class="stat-label">未推送</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="s-yolo" style="color:var(--accent)">—</div>
+    <div class="stat-label">YOLO 目标</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="s-other" style="color:var(--green)">—</div>
+    <div class="stat-label">入侵 / 越线</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body" style="padding:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div>
+        <label class="form-label">摄像头</label>
+        <select class="form-select form-select-sm" id="f-cam" style="min-width:140px">
+          <option value="">全部摄像头</option>
+          {% for cam in cameras %}
+          <option value="{{ cam.id }}">{{ cam.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label">类型</label>
+        <select class="form-select form-select-sm" id="f-type" style="min-width:130px">
+          <option value="">全部类型</option>
+          <option value="yolo">YOLO 目标检测</option>
+          <option value="intrusion">入侵区域</option>
+          <option value="collision">越线检测</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">每页</label>
+        <select class="form-select form-select-sm" id="f-size" style="width:80px">
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="load(1)">
+        <i class="bi bi-search"></i> 查询
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">重置</button>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <label class="form-check-label" style="font-size:12px;color:var(--text-muted)">
+          <input class="form-check-input" type="checkbox" id="auto-refresh" checked style="margin-right:4px"> 自动刷新
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card">
+  <div class="card-header" style="justify-content:space-between">
+    <div><i class="bi bi-bell" style="color:var(--yellow)"></i> 报警记录</div>
+    <span style="font-size:12px;color:var(--text-muted)" id="total-info"></span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:70px">截图</th>
+          <th>摄像头</th><th>类型</th><th>目标</th>
+          <th>置信度</th><th>时间</th>
+          <th style="width:60px"></th>
+        </tr>
+      </thead>
+      <tbody id="alert-tbody">
+        <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">
+          <div class="spinner-border spinner-border-sm"></div>
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer" style="display:flex;justify-content:space-between;align-items:center">
+    <span style="font-size:12px;color:var(--text-muted)" id="page-info"></span>
+    <div id="pagination" style="display:flex;gap:4px"></div>
+  </div>
+</div>
+
+<!-- Image preview modal -->
+<div class="modal fade" id="modalImg" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content" style="background:#090c12">
+      <div class="modal-header" style="background:#090c12">
+        <span class="modal-title" id="img-title">报警截图</span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding:8px;text-align:center;background:#090c12;border-radius:0 0 10px 10px">
+        <img id="img-src" src="" style="max-width:100%;max-height:80vh;border-radius:6px;object-fit:contain" alt="">
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TYPE_COLOR = {yolo:'#2f81f7', intrusion:'var(--red)', collision:'var(--yellow)'};
+const TYPE_LABEL = {yolo:'YOLO目标', intrusion:'入侵区域', collision:'越线检测'};
+let _page = 1, _autoTimer = null;
+
+async function loadStats() {
+  const s = await api('GET','/api/alerts/stats').catch(()=>null);
+  if (!s) return;
+  document.getElementById('s-total').textContent     = s.total || 0;
+  document.getElementById('s-unnotified').textContent = s.unnotified || 0;
+  document.getElementById('s-yolo').textContent  = s.by_type?.yolo || 0;
+  document.getElementById('s-other').textContent = (s.by_type?.intrusion||0) + (s.by_type?.collision||0);
+}
+
+async function load(page=_page) {
+  _page = page;
+  const cam  = document.getElementById('f-cam').value;
+  const type = document.getElementById('f-type').value;
+  const size = document.getElementById('f-size').value;
+  let url = `/api/alerts?page=${page}&page_size=${size}`;
+  if (cam)  url += `&camera_id=${cam}`;
+  if (type) url += `&alert_type=${type}`;
+
+  const data = await api('GET', url).catch(()=>null);
+  if (!data) return;
+
+  document.getElementById('total-info').textContent = `共 ${data.total} 条`;
+  document.getElementById('page-info').textContent  = `第 ${page} / ${data.pages} 页`;
+  renderPager(page, data.pages);
+  loadStats();
+
+  const tbody = document.getElementById('alert-tbody');
+  if (!data.items.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">暂无报警记录</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = data.items.map(a => {
+    const color = TYPE_COLOR[a.type] || 'var(--text-muted)';
+    const label = TYPE_LABEL[a.type] || a.type;
+    const pct   = Math.round(a.confidence * 100);
+    const confColor = pct >= 80 ? 'var(--red)' : pct >= 50 ? 'var(--yellow)' : 'var(--green)';
+    const thumb = a.snapshot_path
+      ? `<img src="/${a.snapshot_path}" style="width:56px;height:40px;object-fit:cover;border-radius:4px;cursor:pointer"
+              onclick="viewImg('/${a.snapshot_path}','${a.camera_name} - ${a.label}')">`
+      : `<div style="width:56px;height:40px;background:#090c12;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#30363d"><i class="bi bi-image"></i></div>`;
+    const t = new Date(a.created_at).toLocaleString('zh-CN',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    return `<tr>
+      <td>${thumb}</td>
+      <td style="font-size:12px">${a.camera_name}</td>
+      <td><span style="background:${color}18;color:${color};border:1px solid ${color}30;padding:2px 8px;border-radius:20px;font-size:11px">${label}</span></td>
+      <td style="font-weight:600;font-size:13px">${a.label||'—'}</td>
+      <td style="color:${confColor};font-weight:700;font-size:13px">${pct}%</td>
+      <td style="font-size:12px;color:var(--text-muted)">${t}</td>
+      <td><button class="btn btn-outline-danger btn-sm" onclick="del(${a.id})"><i class="bi bi-trash3"></i></button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPager(cur, total) {
+  if (total <= 1) { document.getElementById('pagination').innerHTML=''; return; }
+  const btns = [];
+  btns.push(makePagerBtn('‹', cur-1, cur<=1));
+  const start = Math.max(1, cur-2), end = Math.min(total, cur+2);
+  for (let p=start; p<=end; p++) btns.push(makePagerBtn(p, p, false, p===cur));
+  btns.push(makePagerBtn('›', cur+1, cur>=total));
+  document.getElementById('pagination').innerHTML = btns.join('');
+}
+function makePagerBtn(label, page, disabled, active=false) {
+  const bg = active ? 'var(--accent)' : 'transparent';
+  const cl = active ? '#fff' : disabled ? 'var(--text-muted)' : 'var(--text)';
+  const border = '1px solid var(--border)';
+  const cursor = disabled ? 'not-allowed' : 'pointer';
+  return `<button onclick="${disabled||active?'':' load('+page+')'}" style="background:${bg};color:${cl};border:${border};border-radius:4px;padding:3px 9px;font-size:12px;cursor:${cursor}">${label}</button>`;
+}
+
+async function del(id) {
+  if (!confirm('删除该报警记录？')) return;
+  try { await api('DELETE', `/api/alerts/${id}`); showToast('已删除'); load(); }
+  catch(e) { showToast(e.message,'err'); }
+}
+
+function viewImg(src, title) {
+  if (!window._imgModal) window._imgModal = new bootstrap.Modal(document.getElementById('modalImg'));
+  document.getElementById('img-src').src = src;
+  document.getElementById('img-title').textContent = title;
+  window._imgModal.show();
+}
+
+function clearFilters() {
+  ['f-cam','f-type'].forEach(id => document.getElementById(id).value = '');
+  load(1);
+}
+
+function setupAutoRefresh() {
+  const cb = document.getElementById('auto-refresh');
+  function start() { _autoTimer = setInterval(()=>load(), 8000); }
+  function stop()  { clearInterval(_autoTimer); }
+  cb.addEventListener('change', e => e.target.checked ? start() : stop());
+  if (cb.checked) start();
+}
+
+loadStats();
+load(1);
+setupAutoRefresh();
+</script>
+{% endblock %}
