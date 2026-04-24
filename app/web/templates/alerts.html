@@ -60,8 +60,8 @@
       </button>
       <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">重置</button>
       <div class="ms-auto d-flex align-items-center gap-2">
-        <label class="form-check-label" style="font-size:12px;color:var(--text-muted)">
-          <input class="form-check-input" type="checkbox" id="auto-refresh" checked style="margin-right:4px"> 自动刷新
+        <label class="form-check-label" style="font-size:12px;color:var(--text);display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input class="form-check-input" type="checkbox" id="auto-refresh" checked> 自动刷新
         </label>
       </div>
     </div>
@@ -154,20 +154,33 @@ async function load(page=_page) {
   tbody.innerHTML = data.items.map(a => {
     const color = TYPE_COLOR[a.type] || 'var(--text-muted)';
     const label = TYPE_LABEL[a.type] || a.type;
-    const pct   = Math.round(a.confidence * 100);
+    const pct   = Math.round((a.confidence || 0) * 100);
     const confColor = pct >= 80 ? 'var(--red)' : pct >= 50 ? 'var(--yellow)' : 'var(--green)';
-    const thumb = a.snapshot_path
-      ? `<img src="/${a.snapshot_path}" style="width:56px;height:40px;object-fit:cover;border-radius:4px;cursor:pointer"
-              onclick="viewImg('/${a.snapshot_path}','${a.camera_name} - ${a.label}')">`
-      : `<div style="width:56px;height:40px;background:#090c12;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#30363d"><i class="bi bi-image"></i></div>`;
-    const t = new Date(a.created_at).toLocaleString('zh-CN',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+    // 从 data/pictures/20260424/filename.jpg 转为 /api/alerts/picture/20260424/filename.jpg
+    function toImgUrl(p) {
+      if (!p) return null;
+      const parts = p.replace(/\\/g, '/').split('/');
+      return `/api/alerts/picture/${parts[parts.length-2]}/${parts[parts.length-1]}`;
+    }
+    const imgUrl = toImgUrl(a.snapshot_path);
+    const camName = a.camera_name || `摄像头#${a.camera_id}`;
+    const thumb = imgUrl
+      ? `<img src="${imgUrl}" style="width:64px;height:46px;object-fit:cover;border-radius:4px;cursor:pointer;display:block;background:#090c12"
+              onclick="viewImg('${imgUrl}','${camName} — ${a.label||''}')"`+
+        ` onerror="this.outerHTML='<div style=width:64px;height:46px;background:#1a1d22;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#484f58><i class=bi-image-slash></i></div>'">`
+      : `<div style="width:64px;height:46px;background:#1a1d22;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#484f58;font-size:18px"><i class="bi bi-image"></i></div>`;
+    // created_at 末尾有 Z，JavaScript 会自动转为本地时区（北京时间）
+    const dt = new Date(a.created_at);
+    const t = `${dt.getMonth()+1 < 10 ? '0'+(dt.getMonth()+1) : dt.getMonth()+1}/${dt.getDate() < 10 ? '0'+dt.getDate() : dt.getDate()} `
+            + `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}:${String(dt.getSeconds()).padStart(2,'0')}`;
     return `<tr>
       <td>${thumb}</td>
-      <td style="font-size:12px">${a.camera_name}</td>
-      <td><span style="background:${color}18;color:${color};border:1px solid ${color}30;padding:2px 8px;border-radius:20px;font-size:11px">${label}</span></td>
-      <td style="font-weight:600;font-size:13px">${a.label||'—'}</td>
-      <td style="color:${confColor};font-weight:700;font-size:13px">${pct}%</td>
-      <td style="font-size:12px;color:var(--text-muted)">${t}</td>
+      <td style="font-size:13px;color:var(--text);font-weight:500">${camName}</td>
+      <td><span style="background:${color}18;color:${color};border:1px solid ${color}40;padding:2px 9px;border-radius:20px;font-size:11px;white-space:nowrap">${label}</span></td>
+      <td style="font-weight:600;font-size:13px;color:var(--text)">${a.label||'—'}</td>
+      <td><span style="color:${confColor};font-weight:700;font-size:13px">${pct}%</span></td>
+      <td style="font-size:12px;color:var(--text);white-space:nowrap;opacity:.75">${t}</td>
       <td><button class="btn btn-outline-danger btn-sm" onclick="del(${a.id})"><i class="bi bi-trash3"></i></button></td>
     </tr>`;
   }).join('');

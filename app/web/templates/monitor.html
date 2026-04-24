@@ -4,7 +4,7 @@
 {% block page_title %}系统监控{% endblock %}
 
 {% block head %}
-<script src="https://cdn.bootcdn.net/ajax/libs/Chart.js/4.4.2/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -18,7 +18,7 @@
       <option value="5000" selected>5 秒</option>
       <option value="10000">10 秒</option>
     </select>
-    <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer">
+    <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text)">
       <input type="checkbox" id="live-cb" checked> 实时刷新
     </label>
   </div>
@@ -79,7 +79,7 @@
 <!-- Process status -->
 <div class="card">
   <div class="card-header"><i class="bi bi-diagram-3" style="color:var(--green)"></i> 进程状态</div>
-  <div class="card-body" id="proc-body" style="color:var(--text-muted);font-size:13px">加载中...</div>
+  <div class="card-body" id="proc-body" style="color:var(--text);font-size:13px">加载中...</div>
 </div>
 
 {% endblock %}
@@ -129,26 +129,32 @@ function setBar(id, pct) {
 }
 
 async function fetchStats() {
-  const s = await api('GET','/api/system/stats').catch(()=>null);
+  let s;
+  try { s = await api('GET','/api/system/stats'); }
+  catch(e) {
+    document.getElementById('cpu-val').textContent = 'ERR';
+    document.getElementById('cpu-detail').textContent = e.message;
+    return;
+  }
   if (!s) return;
 
   // CPU
-  const cpu = s.cpu_percent;
+  const cpu = s.cpu_percent || 0;
   document.getElementById('cpu-val').textContent    = cpu.toFixed(1) + '%';
-  document.getElementById('cpu-detail').textContent = 'CPU';
+  document.getElementById('cpu-detail').textContent = '';
   setBar('cpu-bar', cpu);
 
   // Memory
-  const m = s.memory;
-  document.getElementById('mem-val').textContent    = m.percent.toFixed(1) + '%';
-  document.getElementById('mem-detail').textContent = `${m.used_gb} / ${m.total_gb} GB`;
-  setBar('mem-bar', m.percent);
+  const m = s.memory || {};
+  document.getElementById('mem-val').textContent    = (m.percent||0).toFixed(1) + '%';
+  document.getElementById('mem-detail').textContent = `${m.used_gb||0} / ${m.total_gb||0} GB`;
+  setBar('mem-bar', m.percent||0);
 
   // Disk
-  const d = s.disk;
-  document.getElementById('disk-val').textContent    = d.percent.toFixed(1) + '%';
-  document.getElementById('disk-detail').textContent = `${d.used_gb} / ${d.total_gb} GB`;
-  setBar('disk-bar', d.percent);
+  const d = s.disk || {};
+  document.getElementById('disk-val').textContent    = (d.percent||0).toFixed(1) + '%';
+  document.getElementById('disk-detail').textContent = `${d.used_gb||0} / ${d.total_gb||0} GB`;
+  setBar('disk-bar', d.percent||0);
 
   // GPU
   const gpus = s.gpus || [];
@@ -187,31 +193,33 @@ async function fetchProcesses() {
   if (!p) return;
   const STATUS_LABEL = {running:'运行中',stopped:'已停止',starting:'启动中',error:'异常'};
   const camRows = (p.cameras||[]).map(c=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;color:var(--text)">
       <span class="dot dot-${c.status}"></span>
-      <span style="font-weight:600">${c.name}</span>
+      <span style="font-weight:600;color:var(--text)">${c.name}</span>
       <span class="badge-status badge-${c.status}" style="font-size:11px">${STATUS_LABEL[c.status]||c.status}</span>
       ${c.error?`<span style="font-size:11px;color:var(--red)">${c.error}</span>`:''}
-    </div>`).join('') || '<span style="color:var(--text-muted)">无运行中摄像头</span>';
+    </div>`).join('') || '<span style="color:var(--text-muted);font-size:13px">无运行中摄像头</span>';
 
+  const SEC = `font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px`;
+  const ROW = `display:flex;align-items:center;gap:6px;padding:4px 0;color:var(--text)`;
   document.getElementById('proc-body').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
       <div>
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px">摄像头流</div>
+        <div style="${SEC}">摄像头流</div>
         ${camRows}
       </div>
       <div>
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px">检测进程</div>
+        <div style="${SEC}">检测进程</div>
         ${(p.detection_workers||[]).length
-          ? p.detection_workers.map(id=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 0"><span class="dot dot-running"></span> 摄像头 #${id}</div>`).join('')
-          : '<span style="color:var(--text-muted)">无活跃检测</span>'}
+          ? p.detection_workers.map(id=>`<div style="${ROW}"><span class="dot dot-running"></span>摄像头 #${id}</div>`).join('')
+          : '<span style="color:var(--text-muted);font-size:13px">无活跃检测</span>'}
       </div>
       <div>
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px">RTSP 推流</div>
+        <div style="${SEC}">RTSP 推流</div>
         ${(p.rtsp_pushes||[]).length
-          ? p.rtsp_pushes.map(id=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 0"><span class="dot dot-running"></span> 摄像头 #${id}</div>`).join('')
-          : '<span style="color:var(--text-muted)">无推流</span>'}
-        <div style="margin-top:8px;font-size:12px">MediaMTX:
+          ? p.rtsp_pushes.map(id=>`<div style="${ROW}"><span class="dot dot-running"></span>摄像头 #${id}</div>`).join('')
+          : '<span style="color:var(--text-muted);font-size:13px">无推流</span>'}
+        <div style="margin-top:8px;font-size:12px;color:var(--text)">MediaMTX：
           <span style="color:${p.mediamtx?'var(--green)':'var(--text-muted)'}">${p.mediamtx?'运行中':'未运行'}</span>
         </div>
       </div>

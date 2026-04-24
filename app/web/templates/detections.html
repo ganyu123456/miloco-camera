@@ -100,6 +100,52 @@
   </div>
 </div>
 
+<!-- ── Edit Modal ── -->
+<div class="modal fade" id="modalEdit" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title"><i class="bi bi-pencil-square me-2" style="color:var(--yellow)"></i>编辑检测规则</span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-id">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label class="form-label">规则名称 <span style="color:var(--red)">*</span></label>
+            <input type="text" class="form-control" id="edit-name">
+          </div>
+          <div>
+            <label class="form-label">摄像头</label>
+            <input type="text" class="form-control" id="edit-cam-name" readonly style="opacity:.6">
+          </div>
+          <div class="d-flex align-items-center gap-3" style="grid-column:1/-1">
+            <label class="form-label mb-0" style="white-space:nowrap">类型：</label>
+            <input type="text" class="form-control" id="edit-type-label" readonly style="opacity:.6;width:auto;flex:1">
+            <div class="form-check form-switch" style="margin:0;white-space:nowrap">
+              <input class="form-check-input" type="checkbox" id="edit-enabled">
+              <label class="form-check-label" for="edit-enabled" style="font-size:13px;color:var(--text)">启用</label>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="form-label">配置参数 (JSON)</label>
+          <textarea class="form-control font-mono" id="edit-config" rows="10" style="font-size:12px"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+            修改 <code>detect_interval</code> 可调整检测频率（秒），数值越大 CPU 占用越低
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary btn-sm" id="btn-edit-save" onclick="submitEdit()">
+          <i class="bi bi-check-lg"></i> 保存
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -109,16 +155,16 @@ const TYPE_LABEL = {yolo:'YOLO 目标', intrusion:'入侵区域', collision:'越
 const TYPE_COLOR = {yolo:'#2f81f7', intrusion:'var(--red)', collision:'var(--yellow)'};
 const TEMPLATES = {
   yolo: {
-    cfg: {confidence:0.5, iou:0.45, classes:["person","car"], model:"yolo11n.pt"},
-    hint: "classes: 目标类别（空数组=全部）。confidence: 置信度阈值 0~1"
+    cfg: {detect_interval:1.0, confidence:0.5, iou:0.45, classes:["person","car"], model:"yolo11n.pt"},
+    hint: "detect_interval: 检测间隔（秒），默认 1 秒，建议 0.5~5 秒；confidence: 置信度阈值 0~1"
   },
   intrusion: {
-    cfg: {roi:[[100,100],[600,100],[600,400],[100,400]], min_area:500, sensitivity:50},
-    hint: "roi: 多边形顶点 [[x,y],...]，min_area: 最小触发面积（像素²）"
+    cfg: {detect_interval:1.0, roi:[[100,100],[600,100],[600,400],[100,400]], min_area:500, sensitivity:50},
+    hint: "detect_interval: 检测间隔（秒）；roi: 多边形顶点 [[x,y],...]；min_area: 最小触发面积（像素²）"
   },
   collision: {
-    cfg: {lines:[[[0,300],[1920,300]]], min_area:300, sensitivity:40},
-    hint: "lines: 虚拟绊线列表，格式 [[[x1,y1],[x2,y2]],...]"
+    cfg: {detect_interval:1.0, lines:[[[0,300],[1920,300]]], min_area:300, sensitivity:40},
+    hint: "detect_interval: 检测间隔（秒）；lines: 虚拟绊线列表 [[[x1,y1],[x2,y2]],...]"
   }
 };
 
@@ -134,6 +180,9 @@ async function load() {
   const url = camId ? `/api/detections?camera_id=${camId}` : '/api/detections';
   const data = await api('GET', url).catch(()=>null);
   if (!data) return;
+  // 缓存数据供编辑 Modal 使用
+  _editDetData = {};
+  data.detections.forEach(d => { _editDetData[d.id] = d; });
 
   document.getElementById('det-count').textContent = `共 ${data.detections.length} 条`;
   const tbody = document.getElementById('det-tbody');
@@ -141,24 +190,28 @@ async function load() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state" style="text-align:center">暂无规则，点击"新增规则"开始配置</td></tr>';
     return;
   }
-  tbody.innerHTML = data.detections.map(d => {
+    tbody.innerHTML = data.detections.map(d => {
     const cfg = d.config || {};
     let summary = '';
-    if (d.type==='yolo')      summary = `置信度 ≥ ${cfg.confidence||0.5} | ${(cfg.classes||[]).join(',') || '全类别'}`;
-    else if (d.type==='intrusion') summary = `ROI ${(cfg.roi||[]).length} 点 | 最小 ${cfg.min_area||500}px²`;
-    else if (d.type==='collision') summary = `${(cfg.lines||[]).length} 条绊线`;
+    const interval = cfg.detect_interval || 1.0;
+    if (d.type==='yolo')      summary = `${interval}s/帧 | 置信度 ≥ ${cfg.confidence||0.5} | ${(cfg.classes||[]).join(',') || '全类别'}`;
+    else if (d.type==='intrusion') summary = `${interval}s/帧 | ROI ${(cfg.roi||[]).length} 点 | 最小 ${cfg.min_area||500}px²`;
+    else if (d.type==='collision') summary = `${interval}s/帧 | ${(cfg.lines||[]).length} 条绊线`;
     const color = TYPE_COLOR[d.type]||'var(--text-muted)';
     return `<tr>
-      <td style="font-weight:600">${d.name}</td>
-      <td style="color:var(--text-muted)">${CAMS_MAP[d.camera_id]||'未知'}</td>
-      <td><span style="background:${color}18;color:${color};border:1px solid ${color}30;padding:2px 8px;border-radius:20px;font-size:11px">${TYPE_LABEL[d.type]||d.type}</span></td>
+      <td style="font-weight:600;color:var(--text)">${d.name}</td>
+      <td style="color:var(--text);font-size:13px">${CAMS_MAP[d.camera_id]||'未知'}</td>
+      <td><span style="background:${color}18;color:${color};border:1px solid ${color}40;padding:2px 9px;border-radius:20px;font-size:11px;white-space:nowrap">${TYPE_LABEL[d.type]||d.type}</span></td>
       <td style="font-size:12px;color:var(--text-muted)">${summary}</td>
       <td>
         <div class="form-check form-switch" style="margin:0">
           <input class="form-check-input" type="checkbox" ${d.enabled?'checked':''} onchange="toggle(${d.id},this)">
         </div>
       </td>
-      <td><button class="btn btn-outline-danger btn-sm" onclick="del(${d.id})"><i class="bi bi-trash3"></i></button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline-secondary btn-sm me-1" onclick="openEdit(${d.id})" title="编辑"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-danger btn-sm" onclick="del(${d.id})" title="删除"><i class="bi bi-trash3"></i></button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -176,10 +229,47 @@ async function del(id) {
   catch(e) { showToast(e.message,'err'); }
 }
 
+// ── Add Modal ──────────────────────────────────────────────
 let _addModal;
 function openAdd() {
   if (!_addModal) _addModal = new bootstrap.Modal(document.getElementById('modalAdd'));
   _addModal.show();
+}
+
+// ── Edit Modal ─────────────────────────────────────────────
+let _editModal;
+let _editDetData = {};
+
+function openEdit(id) {
+  const d = _editDetData[id];
+  if (!d) return;
+  if (!_editModal) _editModal = new bootstrap.Modal(document.getElementById('modalEdit'));
+  document.getElementById('edit-id').value       = d.id;
+  document.getElementById('edit-name').value     = d.name;
+  document.getElementById('edit-cam-name').value = CAMS_MAP[d.camera_id] || `摄像头#${d.camera_id}`;
+  document.getElementById('edit-type-label').value = TYPE_LABEL[d.type] || d.type;
+  document.getElementById('edit-enabled').checked  = d.enabled;
+  document.getElementById('edit-config').value   = JSON.stringify(d.config || {}, null, 2);
+  _editModal.show();
+}
+
+async function submitEdit() {
+  const id      = document.getElementById('edit-id').value;
+  const name    = document.getElementById('edit-name').value.trim();
+  const enabled = document.getElementById('edit-enabled').checked;
+  if (!name) { showToast('规则名称不能为空','warn'); return; }
+  let config;
+  try { config = JSON.parse(document.getElementById('edit-config').value); }
+  catch(e) { showToast('JSON 格式错误','err'); return; }
+  const btn = document.getElementById('btn-edit-save');
+  btn.disabled = true;
+  try {
+    await api('PATCH', `/api/detections/${id}`, { name, enabled, config });
+    showToast('检测规则已更新');
+    _editModal.hide();
+    load();
+  } catch(e) { showToast(e.message,'err'); }
+  finally { btn.disabled = false; }
 }
 
 async function submitAdd() {

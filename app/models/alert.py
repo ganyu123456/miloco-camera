@@ -30,5 +30,5 @@ class Alert(Base):
             "confidence": round(self.confidence, 3),
             "snapshot_path": self.snapshot_path,
             "notified": self.notified,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }

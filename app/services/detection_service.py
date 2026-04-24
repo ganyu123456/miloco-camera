@@ -19,7 +19,7 @@ class DetectionWorker:
 
     def __init__(self, camera_id: int):
         self.camera_id = camera_id
-        self._queue: asyncio.Queue = asyncio.Queue(maxsize=settings.FRAME_QUEUE_SIZE)
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=1)  # 只保留最新帧，有间隔限频
         self._task: Optional[asyncio.Task] = None
         self._detectors: List = []        # AbstractDetector 实例列表
         self._detection_configs: List[dict] = []
@@ -74,13 +74,17 @@ class DetectionWorker:
             # 存入 type 信息供报警服务使用
             det._detection_type = dtype
             det._detection_config_id = cfg.get("id")
+            # 从 config_json 读取检测间隔（秒），默认 1 秒
+            det._detect_interval = float(config.get("detect_interval", 1.0))
             self._detectors.append(det)
 
     async def _run_loop(self) -> None:
         import cv2
+        import time
         from app.services.alert_service import alert_service
 
         last_alert_ts: Dict[str, float] = {}
+        last_detect_ts: Dict[int, float] = {}  # detector_id -> last detect time
 
         while True:
             try:
@@ -98,6 +102,14 @@ class DetectionWorker:
                         except Exception as e:
                             logger.error(f"Detector init failed: {e}")
                             continue
+
+                    # detect_interval 限频：每 N 秒最多检测一次
+                    det_id = id(detector)
+                    now = time.time()
+                    interval = getattr(detector, '_detect_interval', 1.0)
+                    if now - last_detect_ts.get(det_id, 0) < interval:
+                        continue
+                    last_detect_ts[det_id] = now
 
                     try:
                         detections = detector.detect(frame)

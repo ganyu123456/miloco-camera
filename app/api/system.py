@@ -9,21 +9,26 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 
 def _get_cpu_memory() -> dict:
     import psutil
-    cpu_percent = psutil.cpu_percent(interval=None)
+    # interval=0.5 保证首次调用也能拿到真实值（否则首次返回 0.0）
+    cpu_percent = psutil.cpu_percent(interval=0.5)
     mem = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
+    try:
+        disk = psutil.disk_usage("/")
+        disk_info = {
+            "total_gb": round(disk.total / 1024**3, 2),
+            "used_gb": round(disk.used / 1024**3, 2),
+            "percent": round(disk.percent, 1),
+        }
+    except Exception:
+        disk_info = {"total_gb": 0, "used_gb": 0, "percent": 0}
     return {
-        "cpu_percent": cpu_percent,
+        "cpu_percent": round(cpu_percent, 1),
         "memory": {
             "total_gb": round(mem.total / 1024**3, 2),
             "used_gb": round(mem.used / 1024**3, 2),
-            "percent": mem.percent,
+            "percent": round(mem.percent, 1),
         },
-        "disk": {
-            "total_gb": round(disk.total / 1024**3, 2),
-            "used_gb": round(disk.used / 1024**3, 2),
-            "percent": disk.percent,
-        },
+        "disk": disk_info,
     }
 
 
@@ -63,10 +68,21 @@ def _get_gpu_info() -> List[dict]:
 
 @router.get("/stats")
 async def system_stats():
-    loop = asyncio.get_running_loop()
-    cpu_mem = await loop.run_in_executor(None, _get_cpu_memory)
-    gpu_info = await loop.run_in_executor(None, _get_gpu_info)
-    return {**cpu_mem, "gpus": gpu_info}
+    try:
+        loop = asyncio.get_running_loop()
+        cpu_mem = await loop.run_in_executor(None, _get_cpu_memory)
+        gpu_info = await loop.run_in_executor(None, _get_gpu_info)
+        return {**cpu_mem, "gpus": gpu_info}
+    except Exception as e:
+        import psutil
+        mem = psutil.virtual_memory()
+        return {
+            "cpu_percent": psutil.cpu_percent(interval=0),
+            "memory": {"total_gb": round(mem.total/1024**3,2), "used_gb": round(mem.used/1024**3,2), "percent": round(mem.percent,1)},
+            "disk": {"total_gb": 0, "used_gb": 0, "percent": 0},
+            "gpus": [],
+            "error": str(e),
+        }
 
 
 @router.get("/processes")
