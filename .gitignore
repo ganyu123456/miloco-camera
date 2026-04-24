@@ -6,3 +6,6 @@ data/
 camera.jpg
 *.pt
 mediamtx.yml
+.DS_Store
+.github/.DS_Store
+app/.DS_Store
