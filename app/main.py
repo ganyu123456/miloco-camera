@@ -99,10 +99,12 @@ app.include_router(web_router)
 
 if __name__ == "__main__":
     import uvicorn
+    # PyInstaller 冻结环境不支持字符串模块路径和 reload，直接传 app 对象
+    _reload = False if getattr(sys, 'frozen', False) else settings.DEBUG
     uvicorn.run(
-        "app.main:app",
+        app,
         host=settings.HOST,
         port=settings.PORT,
-        reload=settings.DEBUG,
+        reload=_reload,
         log_level="info",
     )
