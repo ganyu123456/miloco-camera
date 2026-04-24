@@ -20,16 +20,11 @@ PROJECT_CODE: str = "mico"
 def _check_system_support():
     """检查系统是否支持，仅支持 macOS、Linux 和 Windows (WSL)"""
     if platform.system() == "Windows":
-        print(
-            "不支持原生 Windows 系统。\n"
-            "本 SDK 仅支持以下系统：\n"
-            "  - macOS\n"
-            "  - Linux\n"
-            "  - Windows (WSL - Windows Subsystem for Linux)\n"
-            "\n"
-            "如果您在 Windows 上使用，请通过 WSL 运行。"
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "Running on native Windows. Some CLI features may not work as expected. "
+            "Web server / API mode is supported."
         )
-        exit(1)
 
 
 def _is_api_endpoint(obj):
