@@ -27,7 +27,7 @@ router = APIRouter(tags=["web"])
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("cameras.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="cameras.html")
 
 
 @router.get("/cameras", response_class=HTMLResponse)
@@ -42,7 +42,9 @@ async def cameras_page(request: Request, db: AsyncSession = Depends(get_db)):
         state = camera_manager.get_state(cam.id)
         d["status"] = state.status if state else "stopped"
         cam_list.append(d)
-    return templates.TemplateResponse("cameras.html", {"request": request, "cameras": cam_list})
+    return templates.TemplateResponse(
+        request=request, name="cameras.html", context={"cameras": cam_list}
+    )
 
 
 @router.get("/detections", response_class=HTMLResponse)
@@ -51,21 +53,25 @@ async def detections_page(request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.detection import DetectionConfig
     cameras = (await db.execute(select(Camera))).scalars().all()
     detections = (await db.execute(select(DetectionConfig))).scalars().all()
-    return templates.TemplateResponse("detections.html", {
-        "request": request,
-        "cameras": [c.to_dict() for c in cameras],
-        "detections": [d.to_dict() for d in detections],
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="detections.html",
+        context={
+            "cameras": [c.to_dict() for c in cameras],
+            "detections": [d.to_dict() for d in detections],
+        },
+    )
 
 
 @router.get("/alerts", response_class=HTMLResponse)
 async def alerts_page(request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.camera import Camera
     cameras = (await db.execute(select(Camera))).scalars().all()
-    return templates.TemplateResponse("alerts.html", {
-        "request": request,
-        "cameras": [c.to_dict() for c in cameras],
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="alerts.html",
+        context={"cameras": [c.to_dict() for c in cameras]},
+    )
 
 
 @router.get("/streams", response_class=HTMLResponse)
@@ -83,13 +89,16 @@ async def streams_page(request: Request):
         }
         for s in states
     ]
-    return templates.TemplateResponse("streams.html", {
-        "request": request,
-        "streams": stream_list,
-        "mediamtx_running": rtsp_service.is_mediamtx_running(),
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="streams.html",
+        context={
+            "streams": stream_list,
+            "mediamtx_running": rtsp_service.is_mediamtx_running(),
+        },
+    )
 
 
 @router.get("/monitor", response_class=HTMLResponse)
 async def monitor_page(request: Request):
-    return templates.TemplateResponse("monitor.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="monitor.html")
