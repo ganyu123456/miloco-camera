@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+{% set active = "cameras" %}
+{% block title %}摄像头管理{% endblock %}
+{% block page_title %}摄像头管理{% endblock %}
+
+{% block content %}
+
+<!-- Header actions -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <span style="font-size:13px;color:var(--text-muted)">管理多路摄像头接入，支持小米 MIoT 协议</span>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary btn-sm" onclick="openDiscover()">
+      <i class="bi bi-search"></i> 扫描小米设备
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+      <i class="bi bi-plus-lg"></i> 添加摄像头
+    </button>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value" id="s-total" style="color:var(--accent)">—</div>
+    <div class="stat-label">摄像头总数</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="s-running" style="color:var(--green)">—</div>
+    <div class="stat-label">运行中</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="s-error" style="color:var(--red)">—</div>
+    <div class="stat-label">异常</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="s-alerts" style="color:var(--yellow)">—</div>
+    <div class="stat-label">报警总数</div>
+  </div>
+</div>
+
+<!-- Camera grid -->
+<div class="cam-grid" id="cam-grid">
+  <div class="card" style="grid-column:1/-1">
+    <div class="card-body" style="padding:40px;text-align:center;color:var(--text-muted)">
+      <div class="spinner-border spinner-border-sm" role="status"></div>
+      <span class="ms-2">加载中...</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Camera Modal ── -->
+<div class="modal fade" id="modalAdd" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title"><i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>添加摄像头</span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">摄像头名称 <span style="color:var(--red)">*</span></label>
+          <input type="text" class="form-control" id="f-name" placeholder="如：客厅摄像头">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">设备 ID (DID) <span style="color:var(--red)">*</span></label>
+          <input type="text" class="form-control" id="f-did" placeholder="小米设备 ID，可通过扫描自动填入">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">设备型号</label>
+          <input type="text" class="form-control" id="f-model" placeholder="如：MJSXJ09CM（选填）">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label class="form-label">视频质量</label>
+            <select class="form-select" id="f-quality">
+              <option value="HIGH">高清 (HIGH)</option>
+              <option value="LOW">标清 (LOW)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">通道</label>
+            <input type="number" class="form-control" id="f-channel" value="0" min="0">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary btn-sm" id="btn-add" onclick="submitAdd()">
+          <i class="bi bi-plus-lg"></i> 添加
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Discover Modal ── -->
+<div class="modal fade" id="modalDiscover" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title"><i class="bi bi-wifi me-2" style="color:var(--green)"></i>扫描到的小米设备</span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="discover-body">
+        <div style="text-align:center;padding:32px;color:var(--text-muted)">
+          <div class="spinner-border spinner-border-sm"></div>
+          <p style="margin-top:12px;font-size:13px">正在扫描设备，请稍候...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Preview Modal ── -->
+<div class="modal fade" id="modalPreview" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:min(94vw,1280px)">
+    <div class="modal-content" style="background:#090c12;border-color:#30363d">
+      <div class="modal-header" style="background:#0d1117;border-color:#30363d;padding:10px 16px">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+          <span class="dot dot-running" style="flex-shrink:0"></span>
+          <span id="preview-cam-name" style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+          <span style="font-size:11px;color:var(--text-muted)" id="preview-cam-info"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:12px">
+          <button class="btn btn-outline-secondary btn-sm" id="btn-snapshot" onclick="takeSnapshot()" title="截图">
+            <i class="bi bi-camera"></i>
+          </button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="closePreview()"></button>
+        </div>
+      </div>
+      <div style="position:relative;background:#000;line-height:0">
+        <!-- MJPEG 流 -->
+        <img id="preview-stream"
+             src=""
+             style="width:100%;max-height:70vh;object-fit:contain;display:block"
+             alt="视频流">
+        <!-- 加载中遮罩 -->
+        <div id="preview-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.7);color:#8b949e">
+          <div class="spinner-border" style="width:2rem;height:2rem"></div>
+          <div style="margin-top:12px;font-size:13px">连接摄像头...</div>
+        </div>
+      </div>
+      <!-- 底部工具栏 -->
+      <div style="background:#0d1117;border-top:1px solid #30363d;padding:8px 14px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:11px;color:var(--text-muted)">
+          <i class="bi bi-info-circle me-1"></i>MJPEG 实时流 — 关闭后自动断开
+        </span>
+        <span id="preview-fps" style="font-size:11px;color:var(--text-muted);margin-left:auto;font-variant-numeric:tabular-nums"></span>
+        <span id="preview-ts" style="font-size:11px;color:var(--text-muted)"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STATUS_LABEL = {running:'运行中', stopped:'已停止', starting:'启动中', error:'异常'};
+let _camData = [];
+
+function renderStats(cameras, alertTotal) {
+  document.getElementById('s-total').textContent   = cameras.length;
+  document.getElementById('s-running').textContent = cameras.filter(c=>c.status==='running').length;
+  document.getElementById('s-error').textContent   = cameras.filter(c=>c.status==='error').length;
+  document.getElementById('s-alerts').textContent  = alertTotal ?? '—';
+}
+
+function renderCameras(cameras) {
+  _camData = cameras;
+  const grid = document.getElementById('cam-grid');
+  if (!cameras.length) {
+    grid.innerHTML = `<div class="card" style="grid-column:1/-1">
+      <div class="empty-state"><i class="bi bi-camera-video-off"></i><p>暂无摄像头，点击右上角"添加摄像头"</p></div>
+    </div>`;
+    return;
+  }
+  grid.innerHTML = cameras.map(cam => {
+    const st = cam.status || 'stopped';
+    const err = cam.error_msg ? `<div style="margin:0 0 6px;padding:4px 8px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:4px;font-size:11px;color:var(--red)">${cam.error_msg}</div>` : '';
+    const thumb = st === 'running'
+      ? `<img src="/api/cameras/${cam.id}/stream" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#090c12;border-radius:6px 6px 0 0" loading="lazy" onerror="this.style.display='none'">`
+      : `<div style="width:100%;aspect-ratio:16/9;background:#090c12;border-radius:6px 6px 0 0;display:flex;align-items:center;justify-content:center;color:#30363d;font-size:32px"><i class="bi bi-camera-video-off"></i></div>`;
+    return `<div class="card" id="cam-card-${cam.id}">
+      ${thumb}
+      <div class="card-body" style="padding:12px">
+        ${err}
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <div style="font-weight:600;font-size:13px">${cam.name}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:1px">DID: <code>${cam.did}</code></div>
+          </div>
+          <span class="badge-status badge-${st}">
+            <span class="dot dot-${st}"></span>${STATUS_LABEL[st]||st}
+          </span>
+        </div>
+        <div style="display:flex;gap:16px;font-size:11px;color:var(--text-muted)">
+          <span><i class="bi bi-film me-1"></i>${cam.video_quality}</span>
+          <span><i class="bi bi-diagram-2 me-1"></i>通道 ${cam.channel}</span>
+          ${cam.model?`<span><i class="bi bi-cpu me-1"></i>${cam.model}</span>`:''}
+        </div>
+      </div>
+      <div class="card-footer d-flex gap-2 flex-wrap">
+        ${st==='running'
+          ? `<button class="btn btn-outline-secondary btn-sm" onclick="stopCam(${cam.id})"><i class="bi bi-stop-fill"></i> 停止</button>
+             <button class="btn btn-outline-info btn-sm" onclick="openPreview(${cam.id},'${cam.name.replace(/'/g,"\\'")}')"><i class="bi bi-fullscreen"></i> 预览</button>`
+          : `<button class="btn btn-outline-success btn-sm" onclick="startCam(${cam.id})"><i class="bi bi-play-fill"></i> 启动</button>`}
+        <a href="/detections" class="btn btn-outline-secondary btn-sm"><i class="bi bi-eye"></i> 检测</a>
+        <button class="btn btn-outline-danger btn-sm ms-auto" onclick="deleteCam(${cam.id},'${cam.name}')"><i class="bi bi-trash3"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function load() {
+  try {
+    const [camData, statsData] = await Promise.all([
+      api('GET', '/api/cameras'),
+      api('GET', '/api/alerts/stats').catch(()=>null),
+    ]);
+    renderStats(camData.cameras, statsData?.total);
+    renderCameras(camData.cameras);
+  } catch(e) { showToast(e.message, 'err'); }
+}
+
+async function startCam(id) {
+  try { await api('POST', `/api/cameras/${id}/start`); showToast('启动指令已发送'); load(); }
+  catch(e) { showToast(e.message,'err'); }
+}
+async function stopCam(id) {
+  try { await api('POST', `/api/cameras/${id}/stop`); showToast('已停止','warn'); load(); }
+  catch(e) { showToast(e.message,'err'); }
+}
+async function deleteCam(id, name) {
+  if (!confirm(`确定删除摄像头"${name}"？相关检测配置也会被删除。`)) return;
+  try { await api('DELETE', `/api/cameras/${id}`); showToast('已删除'); load(); }
+  catch(e) { showToast(e.message,'err'); }
+}
+
+// Add modal
+let _addModal;
+function openAddModal() {
+  if (!_addModal) _addModal = new bootstrap.Modal(document.getElementById('modalAdd'));
+  _addModal.show();
+}
+async function submitAdd() {
+  const name = document.getElementById('f-name').value.trim();
+  const did  = document.getElementById('f-did').value.trim();
+  if (!name || !did) { showToast('请填写名称和设备 ID','warn'); return; }
+  const btn = document.getElementById('btn-add');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/cameras', {
+      name, did,
+      model: document.getElementById('f-model').value.trim() || null,
+      video_quality: document.getElementById('f-quality').value,
+      channel: parseInt(document.getElementById('f-channel').value) || 0,
+    });
+    showToast('摄像头添加成功');
+    _addModal.hide();
+    ['f-name','f-did','f-model'].forEach(id=>document.getElementById(id).value='');
+    load();
+  } catch(e) { showToast(e.message,'err'); }
+  finally { btn.disabled = false; }
+}
+
+// Discover modal
+let _discoverModal;
+async function openDiscover() {
+  if (!_discoverModal) _discoverModal = new bootstrap.Modal(document.getElementById('modalDiscover'));
+  document.getElementById('discover-body').innerHTML = `
+    <div style="text-align:center;padding:32px;color:var(--text-muted)">
+      <div class="spinner-border spinner-border-sm"></div>
+      <p style="margin-top:12px;font-size:13px">正在扫描小米设备...</p>
+    </div>`;
+  _discoverModal.show();
+  try {
+    const data = await api('GET', '/api/cameras/discover/xiaomi');
+    const devices = data.devices;
+    if (!devices.length) {
+      document.getElementById('discover-body').innerHTML = '<div class="empty-state"><i class="bi bi-wifi-off"></i><p>未发现在线设备</p></div>';
+      return;
+    }
+    document.getElementById('discover-body').innerHTML = `
+      <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr><th>名称</th><th>设备 ID</th><th>型号</th><th>IP</th><th>状态</th><th></th></tr></thead>
+        <tbody>${devices.map(d=>`<tr>
+          <td>${d.name||'—'}</td>
+          <td><code>${d.did}</code></td>
+          <td style="color:var(--text-muted)">${d.model||'—'}</td>
+          <td style="color:var(--text-muted)">${d.local_ip||'—'}</td>
+          <td>${d.is_online
+            ?'<span class="badge-status badge-running"><span class="dot dot-running"></span>在线</span>'
+            :'<span class="badge-status badge-stopped">离线</span>'}</td>
+          <td><button class="btn btn-primary btn-sm" onclick="prefill('${d.did}','${d.name||''}','${d.model||''}')">使用</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+  } catch(e) {
+    document.getElementById('discover-body').innerHTML = `<div class="empty-state"><i class="bi bi-exclamation-triangle" style="color:var(--red)"></i><p style="color:var(--red)">${e.message}</p></div>`;
+  }
+}
+function prefill(did, name, model) {
+  document.getElementById('f-did').value = did;
+  document.getElementById('f-name').value = name;
+  document.getElementById('f-model').value = model;
+  _discoverModal.hide();
+  openAddModal();
+}
+
+// ── Preview ─────────────────────────────────────────────────
+let _previewModal = null;
+let _previewCamId = null;
+let _fpsTimer = null;
+let _frameCount = 0;
+
+function openPreview(id, name) {
+  _previewCamId = id;
+  if (!_previewModal) {
+    const el = document.getElementById('modalPreview');
+    _previewModal = new bootstrap.Modal(el);
+    el.addEventListener('hidden.bs.modal', closePreview);
+  }
+
+  // 摄像头信息
+  const cam = _camData.find(c => c.id === id);
+  document.getElementById('preview-cam-name').textContent = name;
+  document.getElementById('preview-cam-info').textContent =
+    cam ? `${cam.video_quality} · 通道 ${cam.channel} · DID: ${cam.did}` : '';
+  document.getElementById('btn-snapshot').dataset.camId = id;
+
+  // 重置加载遮罩
+  const loading = document.getElementById('preview-loading');
+  loading.style.display = 'flex';
+
+  // 设置流地址（带时间戳防缓存）
+  const img = document.getElementById('preview-stream');
+  img.src = '';
+  img.onload = () => { loading.style.display = 'none'; _frameCount++; };
+  img.onerror = () => {
+    loading.innerHTML = `<i class="bi bi-exclamation-triangle" style="font-size:2rem;color:var(--red)"></i>
+      <div style="margin-top:10px;font-size:13px;color:var(--red)">流连接失败，请确认摄像头正在运行</div>`;
+  };
+  img.src = `/api/cameras/${id}/stream?t=${Date.now()}`;
+
+  // FPS 统计
+  clearInterval(_fpsTimer);
+  _frameCount = 0;
+  _fpsTimer = setInterval(() => {
+    document.getElementById('preview-fps').textContent =
+      _frameCount > 0 ? `约 ${_frameCount} fps` : '';
+    _frameCount = 0;
+  }, 1000);
+
+  _previewModal.show();
+}
+
+function closePreview() {
+  clearInterval(_fpsTimer);
+  const img = document.getElementById('preview-stream');
+  img.src = '';         // 断开 MJPEG 流，释放带宽
+  document.getElementById('preview-fps').textContent = '';
+  _previewCamId = null;
+}
+
+async function takeSnapshot() {
+  const id = document.getElementById('btn-snapshot').dataset.camId;
+  if (!id) return;
+  try {
+    // 直接在新标签打开 snapshot 接口（浏览器会显示/下载 JPEG）
+    window.open(`/api/cameras/${id}/snapshot?t=${Date.now()}`, '_blank');
+  } catch(e) { showToast(e.message, 'err'); }
+}
+
+// Auto-refresh (10s, lighter than 5s)
+load();
+setInterval(load, 10000);
+</script>
+{% endblock %}

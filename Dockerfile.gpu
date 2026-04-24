@@ -19,8 +19,8 @@ RUN git clone --depth 1 https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
     && cd /tmp/nv-codec-headers && make install \
     && rm -rf /tmp/nv-codec-headers
 
-# 编译 ffmpeg 6.1（仅开启必要组件，减少编译时间）
-RUN git clone --depth 1 -b n6.1.1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg \
+# 编译 ffmpeg 7.1（PyAV >= 14.x 需要 FFmpeg 7.x；6.x 与新版 PyAV API 不兼容）
+RUN git clone --depth 1 -b n7.1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg \
     && cd /tmp/ffmpeg \
     && ./configure \
         --prefix=/opt/ffmpeg \
@@ -32,6 +32,7 @@ RUN git clone --depth 1 -b n6.1.1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmp
         --enable-decoder=hevc,h264,hevc_cuvid,h264_cuvid \
         --enable-parser=hevc,h264 \
         --enable-bsf=hevc_mp4toannexb,h264_mp4toannexb \
+        --enable-hwaccel=hevc_nvdec,h264_nvdec \
         --enable-ffnvcodec \
         --enable-cuvid \
         --enable-nvdec \
@@ -92,9 +93,10 @@ RUN mkdir -p /app/data && \
     fi
 
 # 从源码编译 PyAV，链接到带 NVDEC 的 ffmpeg
-# 注：编译需要 gcc（build-essential），编译完成后立即移除以减小镜像体积
+# PyAV >= 14.0 需要 FFmpeg 7.x；--no-binary av 强制本地编译以链接到 /opt/ffmpeg
+# build-essential 仅在编译期间保留，随后清除以减小镜像体积
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
-    && pip install --no-binary av av \
+    && pip install --no-binary av "av>=14.0" \
     && apt-get purge -y --auto-remove build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

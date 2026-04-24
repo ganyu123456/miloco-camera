@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AI 视频网关{% endblock %}</title>
+  <!-- 使用国内 bootcdn，加载更快 -->
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-card: #161b22;
+      --bg-input: #0d1117;
+      --border: #30363d;
+      --border-hover: #8b949e;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #2f81f7;
+      --accent-dim: rgba(47,129,247,.15);
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --sidebar: 220px;
+
+      /* 覆盖 Bootstrap 5 默认变量，防止深色文字出现在深色背景上 */
+      --bs-body-color: #e6edf3;
+      --bs-body-bg: #0d1117;
+      --bs-card-color: #e6edf3;
+      --bs-card-bg: #161b22;
+      --bs-card-cap-color: #e6edf3;
+      --bs-card-border-color: #30363d;
+      --bs-modal-color: #e6edf3;
+      --bs-modal-bg: #1c2128;
+      --bs-modal-header-color: #e6edf3;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────── */
+    #sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: var(--sidebar);
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      z-index: 300;
+      overflow-y: auto;
+    }
+    .sb-brand {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sb-brand-title {
+      font-size: 14px; font-weight: 700;
+      color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sb-brand-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .sb-section { padding: 14px 12px 4px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .08em; color: #484f58; }
+    .sb-link {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 16px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      border-left: 2px solid transparent;
+      transition: color .12s, background .12s;
+    }
+    .sb-link:hover { color: var(--text); background: rgba(255,255,255,.04); }
+    .sb-link.active { color: var(--text); background: var(--accent-dim); border-left-color: var(--accent); }
+    .sb-link i { font-size: 15px; width: 18px; flex-shrink: 0; }
+
+    /* ── Main ─────────────────────────────────────────────── */
+    #main { margin-left: var(--sidebar); min-height: 100vh; display: flex; flex-direction: column; }
+    #topbar {
+      position: sticky; top: 0; z-index: 200;
+      height: 50px;
+      background: rgba(13,17,23,.92); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    #topbar .page-title { font-size: 14px; font-weight: 600; }
+    .page-content { padding: 20px; }
+
+    /* ── Cards ────────────────────────────────────────────── */
+    /* 强制覆盖 Bootstrap 默认深色文字（防止黑字黑底） */
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+    .card-header {
+      padding: 10px 16px; font-size: 13px; font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      background: transparent; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-body { padding: 16px; color: var(--text); }
+    .card-footer { padding: 10px 16px; border-top: 1px solid var(--border); background: transparent; color: var(--text); }
+
+    /* ── Stat cards (CSS Grid, 不依赖 Bootstrap) ─────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
+    .stat-card {
+      padding: 14px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Camera grid (CSS Grid) ───────────────────────────── */
+    .cam-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 1100px) { .cam-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px)  { .cam-grid { grid-template-columns: 1fr; } }
+
+    /* ── Two-col grid ─────────────────────────────────────── */
+    .col-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    @media (max-width: 768px) { .col-grid-2 { grid-template-columns: 1fr; } }
+
+    /* ── Camera preview ───────────────────────────────────── */
+    .cam-preview {
+      width: 100%; aspect-ratio: 16/9;
+      background: #090c12;
+      border-radius: 6px 6px 0 0;
+      object-fit: cover; display: block;
+    }
+    .cam-placeholder {
+      width: 100%; aspect-ratio: 16/9;
+      background: #090c12;
+      border-radius: 6px 6px 0 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #30363d; font-size: 32px;
+    }
+
+    /* ── Status ───────────────────────────────────────────── */
+    .dot {
+      display: inline-block; width: 7px; height: 7px;
+      border-radius: 50%; vertical-align: middle; margin-right: 4px; flex-shrink: 0;
+    }
+    .dot-running  { background: var(--green);  animation: pulse 2s ease-in-out infinite; }
+    .dot-stopped  { background: #484f58; }
+    .dot-starting { background: var(--yellow); }
+    .dot-error    { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .badge-status {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px; border-radius: 20px;
+      font-size: 11px; font-weight: 500; white-space: nowrap;
+    }
+    .badge-running  { background: rgba(63,185,80,.1);  color: var(--green);  border: 1px solid rgba(63,185,80,.25); }
+    .badge-stopped  { background: rgba(72,79,88,.2);   color: #8b949e; border: 1px solid var(--border); }
+    .badge-starting { background: rgba(210,153,34,.1); color: var(--yellow); border: 1px solid rgba(210,153,34,.25); }
+    .badge-error    { background: rgba(248,81,73,.1);  color: var(--red);    border: 1px solid rgba(248,81,73,.25); }
+
+    /* ── Table ────────────────────────────────────────────── */
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th {
+      padding: 8px 14px; text-align: left;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid rgba(48,54,61,.5);
+      font-size: 13px; vertical-align: middle;
+    }
+    .data-table tbody tr:last-child td { border-bottom: none; }
+    .data-table tbody tr:hover { background: rgba(255,255,255,.02); }
+
+    /* ── Form ─────────────────────────────────────────────── */
+    .form-control, .form-select {
+      background: var(--bg-input) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--text) !important;
+      font-size: 13px;
+      border-radius: 6px;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 3px rgba(47,129,247,.15) !important;
+    }
+    .form-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+
+    /* ── Buttons ──────────────────────────────────────────── */
+    .btn { font-size: 13px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px; }
+    .btn-sm { font-size: 12px; padding: 3px 10px; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .btn-primary:hover { background: #388bfd; border-color: #388bfd; color: #fff; }
+    .btn-outline-secondary {
+      background: transparent; color: var(--text-muted);
+      border-color: var(--border);
+    }
+    .btn-outline-secondary:hover { color: var(--text); border-color: var(--border-hover); background: rgba(255,255,255,.04); }
+    .btn-outline-danger {
+      background: transparent; color: var(--red);
+      border-color: rgba(248,81,73,.3);
+    }
+    .btn-outline-danger:hover { background: rgba(248,81,73,.1); color: var(--red); }
+    .btn-outline-success {
+      background: transparent; color: var(--green);
+      border-color: rgba(63,185,80,.3);
+    }
+    .btn-outline-success:hover { background: rgba(63,185,80,.1); color: var(--green); }
+    .btn-outline-info {
+      background: transparent; color: #58a6ff;
+      border-color: rgba(88,166,255,.3);
+    }
+    .btn-outline-info:hover { background: rgba(88,166,255,.1); color: #58a6ff; }
+
+    /* ── Modal ────────────────────────────────────────────── */
+    .modal { display: none !important; }
+    .modal.show { display: block !important; }
+    .modal-content { background: #1c2128; border: 1px solid var(--border); border-radius: 10px; color: var(--text); }
+    .modal-header { border-bottom: 1px solid var(--border); padding: 14px 18px; color: var(--text); }
+    .modal-body { padding: 18px; color: var(--text); }
+    .modal-footer { border-top: 1px solid var(--border); padding: 12px 18px; color: var(--text); }
+    .modal-header .btn-close { filter: invert(0.7); }
+    .modal-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+    /* ── Progress ─────────────────────────────────────────── */
+    .progress { background: rgba(255,255,255,.06); border-radius: 4px; height: 6px; overflow: hidden; }
+    .progress-bar { border-radius: 4px; transition: width .5s ease; }
+
+    /* ── Code / monospace ─────────────────────────────────── */
+    code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #79c0ff; }
+    .font-mono { font-family: 'SFMono-Regular', Consolas, monospace; }
+
+    /* ── Readonly 输入框 ──────────────────────────────────── */
+    .form-control[readonly], .form-control:disabled {
+      background: rgba(255,255,255,.04) !important;
+      color: var(--text-muted) !important;
+      opacity: 1 !important;
+    }
+
+    /* ── Input group ──────────────────────────────────────── */
+    .input-group .form-control { border-right: none !important; }
+    .input-group .btn { border-left: none; border-color: var(--border); }
+
+    /* ── select 下拉选项（关键：防止暗背景看不见文字）──────── */
+    select option {
+      background: #1c2128;
+      color: var(--text);
+    }
+    /* Bootstrap dark-theme 可能覆盖颜色，强制纠正 */
+    .form-select option { background: #1c2128 !important; color: var(--text) !important; }
+
+    /* ── 表格正文默认使用主色，防止继承 muted ──────────────── */
+    .data-table td { color: var(--text); }
+    .data-table th { color: var(--text-muted); }
+
+    /* ── 输入框 placeholder 对比度 ─────────────────────────── */
+    ::placeholder { color: #484f58 !important; opacity: 1; }
+
+    /* ── Badge / 标签防渗 ────────────────────────────────────── */
+    .badge-status { color: inherit; }
+
+    /* ── form-check (toggle switch) ────────────────────────── */
+    .form-check-input { background-color: #30363d; border-color: #484f58; }
+    .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
+
+    /* ── Misc ─────────────────────────────────────────────── */
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .text-muted { color: var(--text-muted) !important; }
+    .empty-state {
+      padding: 48px 20px; text-align: center;
+      color: var(--text-muted);
+    }
+    .empty-state i { font-size: 40px; opacity: .3; }
+    .empty-state p { margin-top: 12px; font-size: 13px; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+    /* ── Toast ────────────────────────────────────────────── */
+    #toast-root {
+      position: fixed; bottom: 18px; right: 18px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast-msg {
+      background: #1c2128; border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 14px;
+      font-size: 13px; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+      min-width: 200px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.5);
+      animation: toastIn .2s ease;
+    }
+    .toast-msg.ok  { border-left: 3px solid var(--green); }
+    .toast-msg.err { border-left: 3px solid var(--red); }
+    .toast-msg.warn{ border-left: 3px solid var(--yellow); }
+    @keyframes toastIn { from{transform:translateX(12px);opacity:0} to{transform:none;opacity:1} }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav id="sidebar">
+  <div class="sb-brand">
+    <div class="sb-brand-title">
+      <i class="bi bi-camera-video-fill" style="color:var(--accent)"></i>
+      AI 视频网关
+    </div>
+    <div class="sb-brand-sub">Miloco Camera Gateway</div>
+  </div>
+
+  <div class="sb-section">主功能</div>
+  <a href="/cameras"    class="sb-link {% if active=='cameras'    %}active{% endif %}"><i class="bi bi-camera-video"></i>摄像头管理</a>
+  <a href="/detections" class="sb-link {% if active=='detections' %}active{% endif %}"><i class="bi bi-eye"></i>检测算法配置</a>
+  <a href="/alerts"     class="sb-link {% if active=='alerts'     %}active{% endif %}"><i class="bi bi-bell"></i>报警信息查询</a>
+  <a href="/streams"    class="sb-link {% if active=='streams'    %}active{% endif %}"><i class="bi bi-broadcast"></i>视频流分发</a>
+
+  <div class="sb-section">系统</div>
+  <a href="/monitor"    class="sb-link {% if active=='monitor'    %}active{% endif %}"><i class="bi bi-speedometer2"></i>系统监控</a>
+  <a href="/docs" target="_blank" class="sb-link"><i class="bi bi-code-slash"></i>API 文档</a>
+</nav>
+
+<!-- Main content -->
+<div id="main">
+  <div id="topbar">
+    <span class="page-title">{% block page_title %}{% endblock %}</span>
+    <div class="ms-auto d-flex align-items-center gap-3">
+      <span style="font-size:12px;color:var(--text-muted)" id="clock"></span>
+    </div>
+  </div>
+  <div class="page-content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-root"></div>
+
+<script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+<script>
+  // Clock
+  ;(function tick(){
+    const el=document.getElementById('clock');
+    if(el) el.textContent=new Date().toLocaleString('zh-CN');
+    setTimeout(tick,1000);
+  })();
+
+  // Toast
+  function showToast(msg, type='ok'){
+    const icons = {ok:'check-circle-fill', err:'x-circle-fill', warn:'exclamation-triangle-fill'};
+    const el = document.createElement('div');
+    el.className = `toast-msg ${type}`;
+    el.innerHTML = `<i class="bi bi-${icons[type]||icons.ok}"></i><span>${msg}</span>`;
+    document.getElementById('toast-root').appendChild(el);
+    setTimeout(()=>el.remove(), 3000);
+  }
+
+  // API helper
+  async function api(method, url, body){
+    const opts = { method, headers:{'Content-Type':'application/json'} };
+    if(body != null) opts.body = JSON.stringify(body);
+    const r = await fetch(url, opts);
+    if(r.status === 204) return null;
+    const data = await r.json().catch(()=>({detail: r.statusText}));
+    if(!r.ok) throw new Error(data.detail || r.statusText);
+    return data;
+  }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

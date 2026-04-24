@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% set active = "streams" %}
+{% block title %}视频流分发{% endblock %}
+{% block page_title %}视频流分发{% endblock %}
+
+{% block content %}
+
+<!-- MediaMTX status bar -->
+<div class="card mb-3">
+  <div class="card-body" style="padding:12px 16px;display:flex;align-items:center;gap:12px">
+    <i class="bi bi-server" style="color:var(--accent);font-size:18px"></i>
+    <div>
+      <div style="font-weight:600;font-size:13px;color:var(--text)">MediaMTX RTSP 服务器</div>
+      <div style="font-size:11px;color:var(--text-muted)">第三方播放器（VLC/ffplay）可通过 RTSP 协议拉流</div>
+    </div>
+    <div class="ms-auto d-flex align-items-center gap-2" id="mtx-area">
+      <div class="spinner-border spinner-border-sm" style="color:var(--text-muted)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Stream cards -->
+<div class="col-grid-2" id="stream-grid">
+  <div class="card" style="grid-column:1/-1">
+    <div class="card-body" style="text-align:center;padding:40px;color:var(--text-muted)">
+      <div class="spinner-border spinner-border-sm"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STATUS_LABEL = {running:'运行中',stopped:'已停止',starting:'启动中',error:'异常'};
+
+async function load() {
+  const data = await api('GET','/api/streams').catch(()=>null);
+  if (!data) return;
+
+  // MediaMTX area
+  const mtx = document.getElementById('mtx-area');
+  if (data.mediamtx_running) {
+    mtx.innerHTML = `<span class="badge-status badge-running"><span class="dot dot-running"></span>运行中</span>
+      <button class="btn btn-outline-danger btn-sm" onclick="mtxStop()"><i class="bi bi-stop-fill"></i> 停止</button>`;
+  } else {
+    mtx.innerHTML = `<span class="badge-status badge-stopped">未运行</span>
+      <button class="btn btn-outline-success btn-sm" onclick="mtxStart()"><i class="bi bi-play-fill"></i> 启动</button>`;
+  }
+
+  const grid = document.getElementById('stream-grid');
+  if (!data.streams.length) {
+    grid.innerHTML = `<div class="card" style="grid-column:1/-1">
+      <div class="empty-state"><i class="bi bi-broadcast"></i>
+      <p>暂无摄像头流，请先在摄像头管理中添加并启动摄像头</p></div>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = data.streams.map(s => `
+    <div class="card">
+      <div class="card-header" style="justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="dot dot-${s.status}"></span>
+          <span style="font-weight:600;color:var(--text)">${s.name}</span>
+          <span class="badge-status badge-${s.status}" style="font-size:11px">${STATUS_LABEL[s.status]||s.status}</span>
+        </div>
+        ${s.rtsp_active
+          ? `<button class="btn btn-outline-danger btn-sm" onclick="stopRtsp(${s.camera_id})"><i class="bi bi-stop-fill"></i> 停止推流</button>`
+          : `<button class="btn btn-outline-success btn-sm" ${s.status!=='running'?'disabled':''} onclick="startRtsp(${s.camera_id})">
+               <i class="bi bi-play-fill"></i> RTSP 推流
+             </button>`}
+      </div>
+      <div class="card-body" style="padding:12px">
+        ${s.status==='running'
+          ? `<img class="cam-preview" src="${s.mjpeg_url}" loading="lazy" style="margin-bottom:12px;border-radius:6px">`
+          : `<div class="cam-placeholder" style="margin-bottom:12px;border-radius:6px"><i class="bi bi-camera-video-off"></i></div>`}
+
+        <div class="mb-3">
+          <label class="form-label" style="color:var(--text-muted)">RTSP 流地址</label>
+          <div class="d-flex gap-1">
+            <input type="text" class="form-control font-mono" value="${s.rtsp_url}" readonly id="rtsp-${s.camera_id}"
+                   style="font-size:12px;color:var(--text);background:rgba(255,255,255,.04);border-color:var(--border)">
+            <button class="btn btn-outline-secondary btn-sm" onclick="copy('rtsp-${s.camera_id}')"><i class="bi bi-clipboard"></i></button>
+          </div>
+          ${!s.rtsp_active ? '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">点击"RTSP 推流"按钮后生效</div>' : ''}
+        </div>
+        <div>
+          <label class="form-label" style="color:var(--text-muted)">MJPEG HTTP 流（可直接在浏览器访问）</label>
+          <div class="d-flex gap-1">
+            <input type="text" class="form-control font-mono" value="${location.origin}${s.mjpeg_url}" readonly id="mjpeg-${s.camera_id}"
+                   style="font-size:12px;color:var(--text);background:rgba(255,255,255,.04);border-color:var(--border)">
+            <button class="btn btn-outline-secondary btn-sm" onclick="copy('mjpeg-${s.camera_id}')"><i class="bi bi-clipboard"></i></button>
+            <a href="${s.mjpeg_url}" target="_blank" class="btn btn-outline-info btn-sm"><i class="bi bi-box-arrow-up-right"></i></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function mtxStart() {
+  const r = await api('POST','/api/streams/mediamtx/start');
+  showToast(r.ok ? 'MediaMTX 已启动' : '启动失败，请确认已安装 mediamtx', r.ok?'ok':'err');
+  load();
+}
+async function mtxStop() {
+  await api('POST','/api/streams/mediamtx/stop');
+  showToast('MediaMTX 已停止','warn'); load();
+}
+async function startRtsp(id) {
+  const r = await api('POST',`/api/streams/${id}/start-rtsp`);
+  showToast(r.ok ? `RTSP 推流已启动` : '启动失败', r.ok?'ok':'err'); load();
+}
+async function stopRtsp(id) {
+  await api('POST',`/api/streams/${id}/stop-rtsp`);
+  showToast('RTSP 推流已停止','warn'); load();
+}
+function copy(id) {
+  const v = document.getElementById(id).value;
+  navigator.clipboard.writeText(v).then(()=>showToast('已复制'));
+}
+
+load();
+setInterval(load, 10000);
+</script>
+{% endblock %}
