@@ -34,15 +34,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. 开启 QEMU 以支持跨平台构建 ──────────────────────
+      # ── 2. 释放磁盘空间（ultralytics/PyTorch 体积大，多平台构建需要充足空间）─
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+          sudo apt-get clean
+          df -h
+
+      # ── 3. 开启 QEMU 以支持跨平台构建 ──────────────────────
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # ── 3. 创建多平台 Buildx 构建器 ─────────────────────────
+      # ── 4. 创建多平台 Buildx 构建器 ─────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ── 4. 登录 GitHub Container Registry ───────────────────
+      # ── 5. 登录 GitHub Container Registry ───────────────────
       #     PR 时不推送，因此无需登录
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
