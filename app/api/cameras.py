@@ -147,13 +147,15 @@ async def mjpeg_stream(camera_id: int):
         if not state:
             return
         while True:
+            try:
+                await asyncio.wait_for(state.frame_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
             if state.latest_frame:
-                frame = state.latest_frame
                 yield (
                     b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + state.latest_frame + b"\r\n"
                 )
-            await asyncio.sleep(0.04)  # ~25fps
 
     return StreamingResponse(
         frame_generator(),

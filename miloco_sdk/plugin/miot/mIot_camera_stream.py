@@ -39,8 +39,8 @@ class MIoTCameraStream(BaseApi):
         # 创建摄像头实例
         self.camera_instance = await self.miot_client.create_camera_instance_async(
             camera_info=camera_info,
-            frame_interval=500,  # 毫秒，内部解码用
-            enable_hw_accel=False,  # 关闭硬件加速，脚本调试更稳定
+            frame_interval=34,  # 毫秒，内部解码间隔，34ms ≈ 30fps
+            enable_hw_accel=False,
         )
 
         if on_raw_video_callback:
