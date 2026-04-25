@@ -64,6 +64,8 @@ async def running_processes():
     ]
     return {
         "cameras": camera_states,
-        "rtsp_pushes": list(rtsp_service._ffmpeg_procs.keys()),
+        "rtsp_pushes": [
+            cid for cid, p in rtsp_service._hevc_procs.items() if p.poll() is None
+        ],
         "mediamtx": rtsp_service.is_mediamtx_running(),
     }

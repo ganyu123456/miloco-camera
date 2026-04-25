@@ -1,13 +1,11 @@
 """
 RTSP 分发服务
 - 启动 MediaMTX 子进程作为 RTSP 服务器
-- 使用 FFmpeg 将摄像头帧推送为 RTSP 流
-- 同时提供 MJPEG HTTP 流作为备选
+- 将摄像头原始 HEVC 码流通过 FFmpeg -c:v copy 无损转推为 RTSP（零解码零重编码）
+- MJPEG HTTP 预览由 camera_service 的 latest_frame 独立提供，与 RTSP 路径完全解耦
 """
-import asyncio
 import logging
 import subprocess
-import threading
 from typing import Dict, Optional
 
 from app.config import settings
@@ -19,12 +17,13 @@ class RTSPService:
 
     def __init__(self):
         self._mediamtx_proc: Optional[subprocess.Popen] = None
-        self._ffmpeg_procs: Dict[int, subprocess.Popen] = {}
-        self._running = False
+        # camera_id → FFmpeg HEVC passthrough 进程
+        self._hevc_procs: Dict[int, subprocess.Popen] = {}
 
     # ── MediaMTX 管理 ─────────────────────────────────────────
+
     def start_mediamtx(self) -> bool:
-        """启动 MediaMTX RTSP 服务器"""
+        """启动 MediaMTX RTSP 服务器进程"""
         if self._mediamtx_proc and self._mediamtx_proc.poll() is None:
             return True
         try:
@@ -33,7 +32,6 @@ class RTSPService:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            self._running = True
             logger.info(f"MediaMTX started (PID {self._mediamtx_proc.pid})")
             return True
         except FileNotFoundError:
@@ -49,33 +47,38 @@ class RTSPService:
     def stop_mediamtx(self) -> None:
         if self._mediamtx_proc and self._mediamtx_proc.poll() is None:
             self._mediamtx_proc.terminate()
-            self._mediamtx_proc.wait(timeout=5)
+            try:
+                self._mediamtx_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._mediamtx_proc.kill()
         self._mediamtx_proc = None
-        self._running = False
 
     def is_mediamtx_running(self) -> bool:
         return self._mediamtx_proc is not None and self._mediamtx_proc.poll() is None
 
-    # ── FFmpeg RTSP 推流 ───────────────────────────────────────
-    def start_push(self, camera_id: int, width: int = 1920, height: int = 1080, fps: int = 15) -> bool:
-        """为指定摄像头启动 FFmpeg RTSP 推流进程"""
-        if camera_id in self._ffmpeg_procs:
-            proc = self._ffmpeg_procs[camera_id]
-            if proc.poll() is None:
-                return True
+    # ── HEVC 无损转推 ──────────────────────────────────────────
+
+    def start_hevc_push(self, camera_id: int) -> bool:
+        """
+        启动 FFmpeg 进程，将 stdin 接收的原始 HEVC Annex B 码流
+        无损（-c:v copy）推送到 MediaMTX。
+
+        -bsf:v dump_extra 确保每个关键帧前重复写入 SPS/PPS，
+        使后接入的 RTSP 客户端（如 ai-detector）也能立即解码。
+        """
+        proc = self._hevc_procs.get(camera_id)
+        if proc and proc.poll() is None:
+            return True  # 已在运行
 
         rtsp_url = self.get_rtsp_url(camera_id)
         cmd = [
             "ffmpeg", "-y",
-            "-f", "rawvideo",
-            "-pixel_format", "bgr24",
-            "-video_size", f"{width}x{height}",
-            "-framerate", str(fps),
-            "-i", "pipe:0",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
+            "-f", "hevc",          # 输入格式：原始 HEVC Annex B 码流
+            "-i", "pipe:0",        # 从 stdin 读取
+            "-c:v", "copy",        # 零解码零重编码，完整保留原始画质
+            "-bsf:v", "dump_extra",# 每关键帧重复 SPS/PPS（方便客户端随时接入）
             "-f", "rtsp",
+            "-rtsp_transport", "tcp",
             rtsp_url,
         ]
         try:
@@ -85,8 +88,8 @@ class RTSPService:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            self._ffmpeg_procs[camera_id] = proc
-            logger.info(f"FFmpeg RTSP push started for camera {camera_id}: {rtsp_url}")
+            self._hevc_procs[camera_id] = proc
+            logger.info(f"HEVC passthrough push started for camera {camera_id}: {rtsp_url}")
             return True
         except FileNotFoundError:
             logger.warning("ffmpeg not found; RTSP push disabled")
@@ -95,38 +98,51 @@ class RTSPService:
             logger.error(f"Failed to start ffmpeg for camera {camera_id}: {e}")
             return False
 
+    def push_hevc_packet(self, camera_id: int, data: bytes) -> None:
+        """将一个 HEVC NAL 包写入对应的 FFmpeg stdin。"""
+        proc = self._hevc_procs.get(camera_id)
+        if proc is None or proc.poll() is not None:
+            # 进程不存在或已退出，尝试重启
+            logger.debug(f"FFmpeg HEVC proc for camera {camera_id} not running, restarting...")
+            self._hevc_procs.pop(camera_id, None)
+            if not self.start_hevc_push(camera_id):
+                return
+            proc = self._hevc_procs.get(camera_id)
+            if proc is None:
+                return
+
+        try:
+            proc.stdin.write(data)
+            proc.stdin.flush()
+        except BrokenPipeError:
+            logger.warning(f"FFmpeg HEVC pipe broken for camera {camera_id}, will restart on next packet")
+            self._hevc_procs.pop(camera_id, None)
+        except Exception as e:
+            logger.debug(f"HEVC push error camera {camera_id}: {e}")
+
     def stop_push(self, camera_id: int) -> None:
-        proc = self._ffmpeg_procs.pop(camera_id, None)
+        proc = self._hevc_procs.pop(camera_id, None)
         if proc and proc.poll() is None:
             try:
                 proc.stdin.close()
             except Exception:
                 pass
             proc.terminate()
-            proc.wait(timeout=5)
-
-    def push_frame(self, camera_id: int, bgr_frame_bytes: bytes) -> None:
-        """向 FFmpeg stdin 写入原始 BGR 帧（在帧回调中调用）"""
-        proc = self._ffmpeg_procs.get(camera_id)
-        if proc and proc.poll() is None:
             try:
-                proc.stdin.write(bgr_frame_bytes)
-                proc.stdin.flush()
-            except BrokenPipeError:
-                logger.warning(f"FFmpeg pipe broken for camera {camera_id}, restarting...")
-                self.stop_push(camera_id)
-            except Exception as e:
-                logger.debug(f"RTSP push error camera {camera_id}: {e}")
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     # ── URL 工具 ───────────────────────────────────────────────
+
     def get_rtsp_url(self, camera_id: int) -> str:
         return f"rtsp://{settings.RTSP_HOST}:{settings.RTSP_PORT}/camera_{camera_id}"
 
     def get_all_rtsp_urls(self) -> Dict[int, str]:
-        return {cid: self.get_rtsp_url(cid) for cid in self._ffmpeg_procs}
+        return {cid: self.get_rtsp_url(cid) for cid in self._hevc_procs}
 
     def stop_all(self) -> None:
-        for cid in list(self._ffmpeg_procs.keys()):
+        for cid in list(self._hevc_procs.keys()):
             self.stop_push(cid)
         self.stop_mediamtx()
 

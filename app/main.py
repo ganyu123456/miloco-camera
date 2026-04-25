@@ -35,6 +35,13 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     await init_db()
 
+    logger.info("Starting MediaMTX (RTSP server)...")
+    from app.services.rtsp_service import rtsp_service
+    if rtsp_service.start_mediamtx():
+        logger.info(f"MediaMTX listening on RTSP port {settings.RTSP_PORT}")
+    else:
+        logger.warning("MediaMTX not available; RTSP push will be disabled")
+
     logger.info("Starting camera streams...")
     from app.services.camera_service import camera_manager
     await camera_manager.start_all_enabled()

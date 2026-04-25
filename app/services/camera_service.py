@@ -201,33 +201,17 @@ class CameraManager:
             config={"rtsp_url": state.rtsp_url or ""},
         )
 
-    # ── 帧解码 ─────────────────────────────────────────────────
-    _decoders: Dict[int, object] = {}
-
-    async def _decode_frame(self, data: bytes, state: CameraState) -> Optional[bytes]:
-        """将 HEVC 原始包解码为 JPEG bytes"""
-        import cv2
-        try:
-            from av.packet import Packet
-
-            if state.camera_id not in self._decoders:
-                self._decoders[state.camera_id] = _create_video_decoder()
-
-            decoder = self._decoders[state.camera_id]
-            pkt = Packet(data)
-            frames = decoder.decode(pkt)
-            for frame in frames:
-                bgr = frame.to_ndarray(format="bgr24")
-                ret, jpeg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if ret:
-                    return jpeg.tobytes()
-        except Exception as e:
-            logger.debug(f"Decode error for camera {state.camera_id}: {e}")
-        return None
 
 
 class _XiaomiInlineAdapter:
-    """内联小米 adapter，保持原有流接入逻辑"""
+    """
+    小米摄像头 Adapter — 纯网关模式（零解码）
+
+    双路回调设计：
+      on_decode_jpg_callback → SDK 已解码的 JPEG，仅用于 Web MJPEG 预览（latest_frame）
+      on_raw_video_callback  → 原始 HEVC Annex B 码流，直接管道给 FFmpeg -c:v copy 转推 RTSP
+                               网关本身不做任何解码/重编码，全部运算压力留给 ai-detector
+    """
 
     def __init__(self, camera_id: int, state: CameraState, quality):
         self.camera_id = camera_id
@@ -238,6 +222,7 @@ class _XiaomiInlineAdapter:
     async def connect(self, on_jpeg_frame):
         from miloco_sdk import XiaomiClient
         from miloco_sdk.cli.utils import get_auth_info
+        from app.services.rtsp_service import rtsp_service
 
         state = self._state
         client = XiaomiClient()
@@ -246,14 +231,18 @@ class _XiaomiInlineAdapter:
         self._client = client.miot_camera_stream
         state._miot_client = self._client
 
+        # ── 路径 1：Web 预览（JPEG，SDK 自解码，不经过我们） ────────
         async def on_jpg(did: str, data: bytes, ts: int, channel: int):
             await on_jpeg_frame(state.camera_id, data)
 
+        # ── 路径 2：RTSP 无损转推（原始 HEVC，-c:v copy，零解码） ──
         async def on_raw(did: str, data: bytes, ts: int, seq: int, channel: int):
-            from app.services.camera_service import camera_manager
-            frame = await camera_manager._decode_frame(data, state)
-            if frame:
-                await on_jpeg_frame(state.camera_id, frame)
+            if not rtsp_service.is_mediamtx_running():
+                return
+            # 首包到来时惰性启动该路摄像头的 HEVC 推流进程
+            if state.camera_id not in rtsp_service._hevc_procs:
+                rtsp_service.start_hevc_push(state.camera_id)
+            rtsp_service.push_hevc_packet(state.camera_id, data)
 
         await client.miot_camera_stream.run_stream(
             state.did,
@@ -273,38 +262,6 @@ class _XiaomiInlineAdapter:
             self._client = None
             if self._state:
                 self._state._miot_client = None
-
-
-def _create_video_decoder():
-    """自动选择最优 HEVC 解码器：NVIDIA GPU > CPU"""
-    import subprocess
-    import av
-
-    def try_codec(name):
-        try:
-            av.Codec(name, "r")
-            return True
-        except Exception:
-            return False
-
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-hwaccels"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3,
-        )
-        hw_list = [x.strip() for x in result.stdout.strip().split("\n")[1:] if x.strip()]
-    except Exception:
-        hw_list = []
-
-    from av.video.codeccontext import VideoCodecContext
-    if ("cuda" in hw_list or "cuvid" in hw_list) and try_codec("hevc_cuvid"):
-        logger.info("Using HEVC decoder: hevc_cuvid (NVIDIA GPU)")
-        return VideoCodecContext.create("hevc_cuvid", "r")
-    if try_codec("hevc_v4l2m2m"):
-        logger.info("Using HEVC decoder: hevc_v4l2m2m (V4L2 hardware)")
-        return VideoCodecContext.create("hevc_v4l2m2m", "r")
-    logger.info("Using HEVC decoder: hevc (CPU software)")
-    return VideoCodecContext.create("hevc", "r")
 
 
 camera_manager = CameraManager()

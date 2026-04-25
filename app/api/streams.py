@@ -1,8 +1,5 @@
 """RTSP / 视频流路由"""
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 
 from app.config import settings
 from app.services.rtsp_service import rtsp_service
@@ -24,36 +21,33 @@ async def list_streams():
             "rtsp_url": rtsp_service.get_rtsp_url(s.camera_id),
             "mjpeg_url": f"/api/cameras/{s.camera_id}/stream",
             "snapshot_url": f"/api/cameras/{s.camera_id}/snapshot",
-            "rtsp_active": s.camera_id in rtsp_service._ffmpeg_procs,
+            # HEVC passthrough 进程是否在运行
+            "rtsp_active": s.camera_id in rtsp_service._hevc_procs
+                           and rtsp_service._hevc_procs[s.camera_id].poll() is None,
         })
     return {"streams": items, "mediamtx_running": rtsp_service.is_mediamtx_running()}
 
 
 @router.post("/{camera_id}/start-rtsp")
-async def start_rtsp(camera_id: int, width: int = 1920, height: int = 1080, fps: int = 15):
-    """为指定摄像头启动 RTSP 推流"""
+async def start_rtsp(camera_id: int):
+    """
+    确保 MediaMTX 运行，并为指定摄像头激活 RTSP 无损转推。
+    摄像头流必须已在运行（on_raw_video_callback 才能拿到 HEVC 数据）。
+    """
     state = camera_manager.get_state(camera_id)
     if not state or state.status != "running":
         raise HTTPException(400, "Camera stream is not running")
 
     if not rtsp_service.is_mediamtx_running():
-        rtsp_service.start_mediamtx()
+        if not rtsp_service.start_mediamtx():
+            raise HTTPException(503, "Failed to start MediaMTX")
 
-    ok = rtsp_service.start_push(camera_id, width, height, fps)
-    if ok:
-        # 注册帧回调推流
-        async def push_frame_cb(cid: int, jpeg_bytes: bytes) -> None:
-            import cv2, numpy as np
-            arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if frame is not None:
-                rtsp_service.push_frame(cid, frame.tobytes())
-
-        state.add_frame_callback(push_frame_cb)
-
+    # 预先创建 FFmpeg 进程（首帧到来前就准备好管道）
+    ok = rtsp_service.start_hevc_push(camera_id)
     return {
         "ok": ok,
         "rtsp_url": rtsp_service.get_rtsp_url(camera_id),
+        "note": "HEVC passthrough (zero re-encode). Data flows via on_raw_video_callback.",
     }
 
 
@@ -68,6 +62,10 @@ async def mediamtx_status():
     return {
         "running": rtsp_service.is_mediamtx_running(),
         "rtsp_port": settings.RTSP_PORT,
+        "active_pushes": [
+            cid for cid, p in rtsp_service._hevc_procs.items()
+            if p.poll() is None
+        ],
     }
 
 
