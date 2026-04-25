@@ -1,28 +1,32 @@
 # ============================================================
-# 小米摄像头 Web 流服务 - CPU 版
+# 流媒体网关 - 部署配置
 #   docker compose up -d
 # ============================================================
 
 services:
   miloco-camera:
-    image: harbor.zkjgy.online/library/xiaomi-camera-web:latest
+    image: ghcr.io/${{ REPO }}:latest   # 替换为你的实际镜像地址
+    # 本地构建：build: .
     container_name: miloco-camera
     restart: unless-stopped
 
-    # 使用宿主机网络，才能访问局域网内的摄像头
+    # 必须使用宿主机网络才能通过局域网发现摄像头
     network_mode: host
 
     environment:
       - TZ=Asia/Shanghai
       - LANG=C.UTF-8
+      # 可选：覆盖服务端口（默认 8080）
+      # - PORT=8080
+      # 可选：MediaMTX RTSP 推流端口（默认 8554）
+      # - RTSP_PORT=8554
 
     volumes:
-      # 持久化 auth_info.json，重启容器不需要重新登录
+      # 持久化 auth_info.json（小米授权）和数据库文件，重启容器后不需重新登录
       - ./data:/app/data
 
-    # 健康检查（host 网络模式下无需 ports 映射，容器直接使用宿主机端口）
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8888/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -1,6 +1,6 @@
 """摄像头管理 API"""
 import asyncio
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -17,8 +17,10 @@ router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 class CameraCreate(BaseModel):
     name: str
     did: str
+    brand: str = "xiaomi"     # xiaomi | rtsp
     model: Optional[str] = None
     local_ip: Optional[str] = None
+    rtsp_url: Optional[str] = None
     channel: int = 0
     video_quality: str = "HIGH"
     enabled: bool = True
@@ -27,9 +29,11 @@ class CameraCreate(BaseModel):
 class CameraUpdate(BaseModel):
     name: Optional[str] = None
     enabled: Optional[bool] = None
+    brand: Optional[str] = None
     channel: Optional[int] = None
     video_quality: Optional[str] = None
     local_ip: Optional[str] = None
+    rtsp_url: Optional[str] = None
 
 
 @router.get("")
@@ -48,7 +52,6 @@ async def list_cameras(db: AsyncSession = Depends(get_db)):
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_camera(body: CameraCreate, db: AsyncSession = Depends(get_db)):
-    # 检查 did 唯一性
     exists = (await db.execute(select(Camera).where(Camera.did == body.did))).scalar_one_or_none()
     if exists:
         raise HTTPException(400, f"Camera did={body.did} already exists")
@@ -57,9 +60,12 @@ async def create_camera(body: CameraCreate, db: AsyncSession = Depends(get_db)):
     db.add(cam)
     await db.commit()
     await db.refresh(cam)
-    # 如果 enabled，立即注册并启动流
     if cam.enabled:
-        camera_manager.register(cam.id, cam.name, cam.did, cam.channel, cam.video_quality)
+        camera_manager.register(
+            cam.id, cam.name, cam.did,
+            brand=cam.brand, channel=cam.channel,
+            video_quality=cam.video_quality, rtsp_url=cam.rtsp_url,
+        )
         asyncio.create_task(camera_manager.start(cam.id))
     return cam.to_dict()
 
@@ -87,11 +93,14 @@ async def update_camera(camera_id: int, body: CameraUpdate, db: AsyncSession = D
     await db.commit()
     await db.refresh(cam)
 
-    # 同步运行时状态
     state = camera_manager.get_state(camera_id)
     if "enabled" in update_data:
         if cam.enabled and (state is None or state.status != "running"):
-            camera_manager.register(cam.id, cam.name, cam.did, cam.channel, cam.video_quality)
+            camera_manager.register(
+                cam.id, cam.name, cam.did,
+                brand=cam.brand, channel=cam.channel,
+                video_quality=cam.video_quality, rtsp_url=cam.rtsp_url,
+            )
             asyncio.create_task(camera_manager.start(cam.id))
         elif not cam.enabled and state:
             asyncio.create_task(camera_manager.stop(cam.id))
@@ -115,7 +124,11 @@ async def start_stream(camera_id: int, db: AsyncSession = Depends(get_db)):
     if not cam:
         raise HTTPException(404, "Camera not found")
     if not camera_manager.get_state(camera_id):
-        camera_manager.register(cam.id, cam.name, cam.did, cam.channel, cam.video_quality)
+        camera_manager.register(
+            cam.id, cam.name, cam.did,
+            brand=cam.brand, channel=cam.channel,
+            video_quality=cam.video_quality, rtsp_url=cam.rtsp_url,
+        )
     ok = await camera_manager.start(camera_id)
     return {"ok": ok, "status": camera_manager.get_state(camera_id).status}
 
@@ -139,7 +152,6 @@ async def get_snapshot(camera_id: int):
 @router.get("/{camera_id}/stream")
 async def mjpeg_stream(camera_id: int):
     """MJPEG 视频流（浏览器直接播放）"""
-    import asyncio
     from fastapi.responses import StreamingResponse
 
     async def frame_generator():

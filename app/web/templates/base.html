@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}AI 视频网关{% endblock %}</title>
+  <title>{% block title %}流媒体网关{% endblock %}</title>
   <!-- 使用国内 bootcdn，加载更快 -->
   <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
@@ -319,20 +319,17 @@
 <nav id="sidebar">
   <div class="sb-brand">
     <div class="sb-brand-title">
-      <i class="bi bi-camera-video-fill" style="color:var(--accent)"></i>
-      AI 视频网关
+      <i class="bi bi-broadcast-pin" style="color:var(--accent)"></i>
+      流媒体网关
     </div>
-    <div class="sb-brand-sub">Miloco Camera Gateway</div>
+    <div class="sb-brand-sub">Miloco Camera Gateway v2</div>
   </div>
 
   <div class="sb-section">主功能</div>
   <a href="/cameras"    class="sb-link {% if active=='cameras'    %}active{% endif %}"><i class="bi bi-camera-video"></i>摄像头管理</a>
-  <a href="/detections" class="sb-link {% if active=='detections' %}active{% endif %}"><i class="bi bi-eye"></i>检测算法配置</a>
-  <a href="/alerts"     class="sb-link {% if active=='alerts'     %}active{% endif %}"><i class="bi bi-bell"></i>报警信息查询</a>
   <a href="/streams"    class="sb-link {% if active=='streams'    %}active{% endif %}"><i class="bi bi-broadcast"></i>视频流分发</a>
 
-  <div class="sb-section">系统</div>
-  <a href="/monitor"    class="sb-link {% if active=='monitor'    %}active{% endif %}"><i class="bi bi-speedometer2"></i>系统监控</a>
+  <div class="sb-section">工具</div>
   <a href="/docs" target="_blank" class="sb-link"><i class="bi bi-code-slash"></i>API 文档</a>
 </nav>
 

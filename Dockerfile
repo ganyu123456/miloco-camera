@@ -9,7 +9,6 @@ ENV PIP_TRUSTED_HOST=mirrors.tencent.com
 
 WORKDIR /app
 
-# 切换国内 apt 镜像
 RUN sed -i "s@http://deb.debian.org@https://mirrors.163.com@g" /etc/apt/sources.list.d/debian.sources
 
 RUN apt-get update && \
@@ -24,13 +23,12 @@ RUN apt-get update && \
 
 COPY . .
 
-# 复制认证文件到镜像（如果本地 data/auth_info.json 存在则打包进去）
 RUN mkdir -p /app/data && \
     if [ -f data/auth_info.json ]; then \
         cp data/auth_info.json /app/data/auth_info.json; \
     fi
 
-# ultralytics 会拉入 opencv-python（完整版），需在其之后强制换回 headless 版
+# 强制安装 headless 版，确保无 GUI 依赖（纯流媒体网关不需要桌面渲染）
 RUN pip install -U pip && pip install -e . && \
     pip install --force-reinstall opencv-python-headless
 
