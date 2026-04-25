@@ -148,14 +148,25 @@ class CameraManager:
             client.set_access_token(auth_info["access_token"])
             state._miot_client = client.miot_camera_stream
 
+            async def on_jpg_frame(did: str, data: bytes, ts: int, channel: int):
+                state.latest_frame = data
+                state.frame_event.set()
+                state.frame_event.clear()
+                # 通知所有订阅者
+                for cb in list(state._frame_callbacks):
+                    try:
+                        await cb(state.camera_id, data)
+                    except Exception as e:
+                        logger.warning(f"Frame callback error: {e}")
+
             async def on_raw_video(did: str, data: bytes, ts: int, seq: int, channel: int):
+                # 回退方案：部分平台（如 macOS）不触发 decode_jpg 回调，改由 PyAV 解码
                 frame_bytes = await self._decode_frame(data, state)
                 if frame_bytes is None:
                     return
                 state.latest_frame = frame_bytes
                 state.frame_event.set()
                 state.frame_event.clear()
-                # 通知所有订阅者
                 for cb in list(state._frame_callbacks):
                     try:
                         await cb(state.camera_id, frame_bytes)
@@ -168,6 +179,7 @@ class CameraManager:
             await client.miot_camera_stream.run_stream(
                 state.did,
                 state.channel,
+                on_decode_jpg_callback=on_jpg_frame,
                 on_raw_video_callback=on_raw_video,
                 video_quality=quality,
             )

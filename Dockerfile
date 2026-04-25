@@ -15,7 +15,10 @@ RUN sed -i "s@http://deb.debian.org@https://mirrors.163.com@g" /etc/apt/sources.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libglib2.0-0 \
-    libgomp1 && \
+    libgomp1 \
+    libgl1 \
+    libxcb1 \
+    iputils-ping && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -27,8 +30,9 @@ RUN mkdir -p /app/data && \
         cp data/auth_info.json /app/data/auth_info.json; \
     fi
 
-# flask 和 opencv-python-headless 已在 pyproject.toml 中声明，无需重复安装
-RUN pip install -U pip && pip install -e .
+# ultralytics 会拉入 opencv-python（完整版），需在其之后强制换回 headless 版
+RUN pip install -U pip && pip install -e . && \
+    pip install --force-reinstall opencv-python-headless
 
 EXPOSE 8080
 
