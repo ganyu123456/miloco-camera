@@ -19,22 +19,18 @@
 </div>
 
 <!-- Stats -->
-<div class="stats-grid">
+<div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
   <div class="stat-card">
     <div class="stat-value" id="s-total" style="color:var(--accent)">—</div>
     <div class="stat-label">摄像头总数</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" id="s-running" style="color:var(--green)">—</div>
-    <div class="stat-label">运行中</div>
+    <div class="stat-label">推流中</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" id="s-error" style="color:var(--red)">—</div>
     <div class="stat-label">异常</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-value" id="s-alerts" style="color:var(--yellow)">—</div>
-    <div class="stat-label">报警总数</div>
   </div>
 </div>
 
@@ -160,11 +156,10 @@
 const STATUS_LABEL = {running:'运行中', stopped:'已停止', starting:'启动中', error:'异常'};
 let _camData = [];
 
-function renderStats(cameras, alertTotal) {
+function renderStats(cameras) {
   document.getElementById('s-total').textContent   = cameras.length;
   document.getElementById('s-running').textContent = cameras.filter(c=>c.status==='running').length;
   document.getElementById('s-error').textContent   = cameras.filter(c=>c.status==='error').length;
-  document.getElementById('s-alerts').textContent  = alertTotal ?? '—';
 }
 
 function renderCameras(cameras) {
@@ -206,7 +201,6 @@ function renderCameras(cameras) {
           ? `<button class="btn btn-outline-secondary btn-sm" onclick="stopCam(${cam.id})"><i class="bi bi-stop-fill"></i> 停止</button>
              <button class="btn btn-outline-info btn-sm" onclick="openPreview(${cam.id},'${cam.name.replace(/'/g,"\\'")}')"><i class="bi bi-fullscreen"></i> 预览</button>`
           : `<button class="btn btn-outline-success btn-sm" onclick="startCam(${cam.id})"><i class="bi bi-play-fill"></i> 启动</button>`}
-        <a href="/detections" class="btn btn-outline-secondary btn-sm"><i class="bi bi-eye"></i> 检测</a>
         <button class="btn btn-outline-danger btn-sm ms-auto" onclick="deleteCam(${cam.id},'${cam.name}')"><i class="bi bi-trash3"></i></button>
       </div>
     </div>`;
@@ -215,11 +209,8 @@ function renderCameras(cameras) {
 
 async function load() {
   try {
-    const [camData, statsData] = await Promise.all([
-      api('GET', '/api/cameras'),
-      api('GET', '/api/alerts/stats').catch(()=>null),
-    ]);
-    renderStats(camData.cameras, statsData?.total);
+    const camData = await api('GET', '/api/cameras');
+    renderStats(camData.cameras);
     renderCameras(camData.cameras);
   } catch(e) { showToast(e.message, 'err'); }
 }
@@ -233,7 +224,7 @@ async function stopCam(id) {
   catch(e) { showToast(e.message,'err'); }
 }
 async function deleteCam(id, name) {
-  if (!confirm(`确定删除摄像头"${name}"？相关检测配置也会被删除。`)) return;
+  if (!confirm(`确定删除摄像头"${name}"？`)) return;
   try { await api('DELETE', `/api/cameras/${id}`); showToast('已删除'); load(); }
   catch(e) { showToast(e.message,'err'); }
 }
