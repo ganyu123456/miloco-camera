@@ -1,0 +1,19 @@
+###############################################
+# MediaMTX 配置 - 流媒体网关（仅 RTSP）
+###############################################
+
+logLevel: info
+
+# RTSP 监听地址
+rtspAddress: :8554
+
+# 关闭不需要的协议，减少端口占用
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+
+# 开放所有路径供发布者推流
+paths:
+  all_others:
+
