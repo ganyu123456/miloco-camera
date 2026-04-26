@@ -17,11 +17,8 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - LANG=C.UTF-8
-      # RTSP 推流配置（MediaMTX 默认端口 8554）
-      # - RTSP_PORT=8554
-      # - RTSP_HOST=0.0.0.0
-      # MediaMTX 二进制路径（镜像内已内置，无需修改）
-      # - MEDIAMTX_BIN=mediamtx
+      # ↓ 必填：填写服务器的实际局域网 IP，供 ai-detector 等外部客户端拼接 RTSP 地址
+      - RTSP_HOST=0.0.0.0
 
     volumes:
       # 持久化 auth_info.json（小米授权）和数据库文件，重启容器后不需重新登录

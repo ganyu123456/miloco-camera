@@ -235,13 +235,10 @@ class _XiaomiInlineAdapter:
         async def on_jpg(did: str, data: bytes, ts: int, channel: int):
             await on_jpeg_frame(state.camera_id, data)
 
-        # ── 路径 2：RTSP 无损转推（原始 HEVC，-c:v copy，零解码） ──
+        # ── 路径 2：RTSP 无损转推（PyAV 切分 NAL → FFmpeg -c:v copy → MediaMTX） ──
         async def on_raw(did: str, data: bytes, ts: int, seq: int, channel: int):
             if not rtsp_service.is_mediamtx_running():
                 return
-            # 首包到来时惰性启动该路摄像头的 HEVC 推流进程
-            if state.camera_id not in rtsp_service._hevc_procs:
-                rtsp_service.start_hevc_push(state.camera_id)
             rtsp_service.push_hevc_packet(state.camera_id, data)
 
         await client.miot_camera_stream.run_stream(

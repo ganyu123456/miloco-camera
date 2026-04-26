@@ -14,6 +14,7 @@ async def list_streams():
     states = camera_manager.all_states()
     items = []
     for s in states:
+        pusher = rtsp_service._pushers.get(s.camera_id)
         items.append({
             "camera_id": s.camera_id,
             "name": s.name,
@@ -21,9 +22,7 @@ async def list_streams():
             "rtsp_url": rtsp_service.get_rtsp_url(s.camera_id),
             "mjpeg_url": f"/api/cameras/{s.camera_id}/stream",
             "snapshot_url": f"/api/cameras/{s.camera_id}/snapshot",
-            # HEVC passthrough 进程是否在运行
-            "rtsp_active": s.camera_id in rtsp_service._hevc_procs
-                           and rtsp_service._hevc_procs[s.camera_id].poll() is None,
+            "rtsp_active": pusher is not None and pusher._running,
         })
     return {"streams": items, "mediamtx_running": rtsp_service.is_mediamtx_running()}
 
@@ -63,8 +62,8 @@ async def mediamtx_status():
         "running": rtsp_service.is_mediamtx_running(),
         "rtsp_port": settings.RTSP_PORT,
         "active_pushes": [
-            cid for cid, p in rtsp_service._hevc_procs.items()
-            if p.poll() is None
+            cid for cid, p in rtsp_service._pushers.items()
+            if p._running
         ],
     }
 
