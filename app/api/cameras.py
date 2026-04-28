@@ -1,4 +1,4 @@
-"""摄像头管理 API"""
+"""摄像头管理 API（零解码网关模式，无 MJPEG 预览）"""
 import asyncio
 from typing import Optional
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.camera import Camera
 from app.services.camera_service import camera_manager
+from app.services.rtsp_service import rtsp_service
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
@@ -46,6 +47,7 @@ async def list_cameras(db: AsyncSession = Depends(get_db)):
         state = camera_manager.get_state(cam.id)
         d["status"] = state.status if state else "stopped"
         d["error_msg"] = state.error_msg if state else ""
+        d["rtsp_url"] = rtsp_service.get_rtsp_url(cam.id)
         items.append(d)
     return {"cameras": items}
 
@@ -78,6 +80,7 @@ async def get_camera(camera_id: int, db: AsyncSession = Depends(get_db)):
     d = cam.to_dict()
     state = camera_manager.get_state(cam.id)
     d["status"] = state.status if state else "stopped"
+    d["rtsp_url"] = rtsp_service.get_rtsp_url(camera_id)
     return d
 
 
@@ -137,42 +140,6 @@ async def start_stream(camera_id: int, db: AsyncSession = Depends(get_db)):
 async def stop_stream(camera_id: int):
     await camera_manager.stop(camera_id)
     return {"ok": True, "status": "stopped"}
-
-
-@router.get("/{camera_id}/snapshot")
-async def get_snapshot(camera_id: int):
-    """返回最新一帧 JPEG 截图"""
-    from fastapi.responses import Response
-    state = camera_manager.get_state(camera_id)
-    if not state or not state.latest_frame:
-        raise HTTPException(404, "No frame available")
-    return Response(content=state.latest_frame, media_type="image/jpeg")
-
-
-@router.get("/{camera_id}/stream")
-async def mjpeg_stream(camera_id: int):
-    """MJPEG 视频流（浏览器直接播放）"""
-    from fastapi.responses import StreamingResponse
-
-    async def frame_generator():
-        state = camera_manager.get_state(camera_id)
-        if not state:
-            return
-        while True:
-            try:
-                await asyncio.wait_for(state.frame_event.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                continue
-            if state.latest_frame:
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + state.latest_frame + b"\r\n"
-                )
-
-    return StreamingResponse(
-        frame_generator(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
-    )
 
 
 @router.get("/discover/xiaomi")

@@ -54,7 +54,6 @@ async def streams_page(request: Request):
             "name": s.name,
             "status": s.status,
             "rtsp_url": rtsp_service.get_rtsp_url(s.camera_id),
-            "mjpeg_url": f"/api/cameras/{s.camera_id}/stream",
         }
         for s in states
     ]

@@ -20,8 +20,6 @@ async def list_streams():
             "name": s.name,
             "status": s.status,
             "rtsp_url": rtsp_service.get_rtsp_url(s.camera_id),
-            "mjpeg_url": f"/api/cameras/{s.camera_id}/stream",
-            "snapshot_url": f"/api/cameras/{s.camera_id}/snapshot",
             "rtsp_active": pusher is not None and pusher._running,
         })
     return {"streams": items, "mediamtx_running": rtsp_service.is_mediamtx_running()}

@@ -11,7 +11,7 @@
     <i class="bi bi-server" style="color:var(--accent);font-size:18px"></i>
     <div>
       <div style="font-weight:600;font-size:13px;color:var(--text)">MediaMTX RTSP 服务器</div>
-      <div style="font-size:11px;color:var(--text-muted)">第三方播放器（VLC/ffplay）可通过 RTSP 协议拉流</div>
+      <div style="font-size:11px;color:var(--text-muted)">第三方播放器（VLC / ffplay / ai-detector）可通过 RTSP 协议拉流，零解码零重编码</div>
     </div>
     <div class="ms-auto d-flex align-items-center gap-2" id="mtx-area">
       <div class="spinner-border spinner-border-sm" style="color:var(--text-muted)"></div>
@@ -72,27 +72,26 @@ async function load() {
              </button>`}
       </div>
       <div class="card-body" style="padding:12px">
-        ${s.status==='running'
-          ? `<img class="cam-preview" src="${s.mjpeg_url}" loading="lazy" style="margin-bottom:12px;border-radius:6px">`
-          : `<div class="cam-placeholder" style="margin-bottom:12px;border-radius:6px"><i class="bi bi-camera-video-off"></i></div>`}
+        <!-- 状态指示 -->
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;margin-bottom:12px">
+          <i class="bi bi-${s.rtsp_active?'broadcast':'broadcast-pin'}" style="font-size:18px;color:${s.rtsp_active?'var(--green)':'var(--text-muted)'}"></i>
+          <div>
+            <div style="font-size:12px;font-weight:600;color:${s.rtsp_active?'var(--green)':'var(--text-muted)'}">
+              ${s.rtsp_active?'RTSP 零解码转推中':'暂未推流'}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">FFmpeg -c:v copy · 无 GPU 需求</div>
+          </div>
+        </div>
 
-        <div class="mb-3">
-          <label class="form-label" style="color:var(--text-muted)">RTSP 流地址</label>
+        <!-- RTSP 地址 -->
+        <div>
+          <label class="form-label" style="color:var(--text-muted)">RTSP 流地址（供 ai-detector / VLC 拉流）</label>
           <div class="d-flex gap-1">
             <input type="text" class="form-control font-mono" value="${s.rtsp_url}" readonly id="rtsp-${s.camera_id}"
                    style="font-size:12px;color:var(--text);background:rgba(255,255,255,.04);border-color:var(--border)">
             <button class="btn btn-outline-secondary btn-sm" onclick="copy('rtsp-${s.camera_id}')"><i class="bi bi-clipboard"></i></button>
           </div>
           ${!s.rtsp_active ? '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">点击"RTSP 推流"按钮后生效</div>' : ''}
-        </div>
-        <div>
-          <label class="form-label" style="color:var(--text-muted)">MJPEG HTTP 流（可直接在浏览器访问）</label>
-          <div class="d-flex gap-1">
-            <input type="text" class="form-control font-mono" value="${location.origin}${s.mjpeg_url}" readonly id="mjpeg-${s.camera_id}"
-                   style="font-size:12px;color:var(--text);background:rgba(255,255,255,.04);border-color:var(--border)">
-            <button class="btn btn-outline-secondary btn-sm" onclick="copy('mjpeg-${s.camera_id}')"><i class="bi bi-clipboard"></i></button>
-            <a href="${s.mjpeg_url}" target="_blank" class="btn btn-outline-info btn-sm"><i class="bi bi-box-arrow-up-right"></i></a>
-          </div>
         </div>
       </div>
     </div>
