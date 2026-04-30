@@ -10,8 +10,11 @@ rtspAddress: :8554
 # 关闭不需要的协议，减少端口占用
 rtmp: false
 hls: false
-webrtc: false
 srt: false
+
+# WebRTC：浏览器通过 WHEP 协议直接拉 H.265 流，服务器零转码
+webrtc: true
+webrtcAddress: :8889
 
 # 开放所有路径供发布者推流
 paths:
