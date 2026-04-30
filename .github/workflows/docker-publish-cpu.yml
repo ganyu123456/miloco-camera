@@ -96,21 +96,39 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> 多平台：\`linux/amd64\` + \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
 
-  # ── Release 离线镜像包（仅 v*.*.* tag 触发）──────────────────
+  # ── Release 离线镜像包（每次 push 都触发，PR 除外）────────────
+  #   · push v*.*.* → 正式 Release，tag = 版本号，prerelease=false
+  #   · push main   → 滚动 Nightly Release，tag = "nightly"，prerelease=true（每次覆盖）
   release-images:
     name: Export & Upload Release Images
     runs-on: ubuntu-latest
     needs: build-and-push
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name != 'pull_request'
 
     permissions:
       contents: write   # 创建 Release 并上传附件
       packages: read    # 从 ghcr.io 拉取镜像
 
     steps:
-      - name: Get version tag
+      # 根据触发方式确定：拉取的镜像 tag、Release tag、是否 prerelease
+      - name: Resolve version info
         id: ver
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/}"
+            echo "image_tag=${VER}"      >> $GITHUB_OUTPUT
+            echo "release_tag=${VER}"    >> $GITHUB_OUTPUT
+            echo "release_name=${VER}"   >> $GITHUB_OUTPUT
+            echo "prerelease=false"      >> $GITHUB_OUTPUT
+            echo "file_tag=${VER}"       >> $GITHUB_OUTPUT
+          else
+            echo "image_tag=latest"                              >> $GITHUB_OUTPUT
+            echo "release_tag=nightly"                           >> $GITHUB_OUTPUT
+            echo "release_name=Nightly Build (sha-${SHORT_SHA})" >> $GITHUB_OUTPUT
+            echo "prerelease=true"                               >> $GITHUB_OUTPUT
+            echo "file_tag=nightly"                              >> $GITHUB_OUTPUT
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -123,56 +141,58 @@ jobs:
       - name: Pull & save amd64
         run: |
           docker pull --platform linux/amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.image_tag }}
           docker save \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }} \
-            | gzip > miloco-camera-${{ steps.ver.outputs.tag }}-amd64.tar.gz
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.image_tag }} \
+            | gzip > miloco-camera-${{ steps.ver.outputs.file_tag }}-amd64.tar.gz
 
       # ── 导出 arm64 ──────────────────────────────────────────
       - name: Pull & save arm64
         run: |
           # 移除本地 amd64 tag 避免覆盖保存
           docker rmi \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }} || true
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.image_tag }} || true
           docker pull --platform linux/arm64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.image_tag }}
           docker save \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }} \
-            | gzip > miloco-camera-${{ steps.ver.outputs.tag }}-arm64.tar.gz
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.image_tag }} \
+            | gzip > miloco-camera-${{ steps.ver.outputs.file_tag }}-arm64.tar.gz
 
-      # ── 创建 GitHub Release 并上传 ─────────────────────────
+      # ── 创建 / 更新 GitHub Release 并上传 ──────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ steps.ver.outputs.release_tag }}
+          name: ${{ steps.ver.outputs.release_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.ver.outputs.prerelease }}
+          make_latest: ${{ steps.ver.outputs.prerelease == 'false' }}
           files: |
-            miloco-camera-${{ steps.ver.outputs.tag }}-amd64.tar.gz
-            miloco-camera-${{ steps.ver.outputs.tag }}-arm64.tar.gz
+            miloco-camera-${{ steps.ver.outputs.file_tag }}-amd64.tar.gz
+            miloco-camera-${{ steps.ver.outputs.file_tag }}-arm64.tar.gz
           body: |
             ## 离线镜像包（适合无法访问 ghcr.io 的内网服务器）
 
             | 文件 | 适用架构 |
             |------|---------|
-            | `miloco-camera-${{ steps.ver.outputs.tag }}-amd64.tar.gz` | x86_64 服务器 / 普通 PC |
-            | `miloco-camera-${{ steps.ver.outputs.tag }}-arm64.tar.gz` | ARM64 设备（树莓派 4B+、RK3588 等） |
+            | `miloco-camera-${{ steps.ver.outputs.file_tag }}-amd64.tar.gz` | x86_64 服务器 / 普通 PC |
+            | `miloco-camera-${{ steps.ver.outputs.file_tag }}-arm64.tar.gz` | ARM64 设备（树莓派 4B+、RK3588 等） |
 
             ### 使用方法
 
             ```bash
             # 1. 上传到目标服务器（选择对应架构）
-            scp miloco-camera-${{ steps.ver.outputs.tag }}-amd64.tar.gz user@server:~
+            scp miloco-camera-${{ steps.ver.outputs.file_tag }}-amd64.tar.gz user@server:~
 
             # 2. 在服务器上加载镜像
-            docker load < miloco-camera-${{ steps.ver.outputs.tag }}-amd64.tar.gz
+            docker load < miloco-camera-${{ steps.ver.outputs.file_tag }}-amd64.tar.gz
 
             # 3. 重新打 latest tag（docker-compose 默认拉 latest）
             docker tag \
-              ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }} \
+              ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.image_tag }} \
               ghcr.io/${{ env.IMAGE_NAME }}:latest
 
             # 4. 启动服务
             docker compose up -d
             ```
+jin 
