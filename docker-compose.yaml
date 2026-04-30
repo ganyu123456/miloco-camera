@@ -11,7 +11,8 @@ services:
     restart: unless-stopped
 
     # 必须使用宿主机网络才能通过局域网发现摄像头
-    # host 模式下 8080(Web) 和 8554(RTSP) 直接使用宿主机端口，无需 ports 映射
+    # host 模式下 8080(Web)、8554(RTSP)、8889(WebRTC/WHEP) 直接使用宿主机端口，无需 ports 映射
+    # 注意：服务器防火墙需开放 8889/TCP（WHEP 信令）及相关 UDP 端口（WebRTC 媒体数据）
     network_mode: host
 
     environment:

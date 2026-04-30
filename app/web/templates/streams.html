@@ -10,8 +10,8 @@
   <div class="card-body" style="padding:12px 16px;display:flex;align-items:center;gap:12px">
     <i class="bi bi-server" style="color:var(--accent);font-size:18px"></i>
     <div>
-      <div style="font-weight:600;font-size:13px;color:var(--text)">MediaMTX RTSP 服务器</div>
-      <div style="font-size:11px;color:var(--text-muted)">第三方播放器（VLC / ffplay / ai-detector）可通过 RTSP 协议拉流，零解码零重编码</div>
+      <div style="font-weight:600;font-size:13px;color:var(--text)">MediaMTX RTSP + WebRTC 服务器</div>
+      <div style="font-size:11px;color:var(--text-muted)">RTSP（8554）供 ai-detector / VLC 拉流；WebRTC WHEP（8889）供浏览器直接播放，零转码</div>
     </div>
     <div class="ms-auto d-flex align-items-center gap-2" id="mtx-area">
       <div class="spinner-border spinner-border-sm" style="color:var(--text-muted)"></div>
@@ -33,6 +33,23 @@
 {% block scripts %}
 <script>
 const STATUS_LABEL = {running:'运行中',stopped:'已停止',starting:'启动中',error:'异常'};
+
+// 从 RTSP URL 提取路径段，构造 WebRTC WHEP 地址
+// rtsp://192.168.2.23:8554/camera_1 → http://192.168.2.23:8889/camera_1/whep
+function whepUrl(rtspUrl) {
+  try {
+    const u = new URL(rtspUrl);
+    const path = u.pathname.replace(/^\//, '').replace(/\/$/, '');
+    return `http://${u.hostname}:8889/${path}/whep`;
+  } catch (_) { return ''; }
+}
+// 返回 MediaMTX WebRTC 基地址（供 .env 配置提示）
+// → 192.168.2.23:8889
+function whepBase(rtspUrl) {
+  try {
+    return `${new URL(rtspUrl).hostname}:8889`;
+  } catch (_) { return ''; }
+}
 
 async function load() {
   const data = await api('GET','/api/streams').catch(()=>null);
@@ -84,7 +101,7 @@ async function load() {
         </div>
 
         <!-- RTSP 地址 -->
-        <div>
+        <div class="mb-2">
           <label class="form-label" style="color:var(--text-muted)">RTSP 流地址（供 ai-detector / VLC 拉流）</label>
           <div class="d-flex gap-1">
             <input type="text" class="form-control font-mono" value="${s.rtsp_url}" readonly id="rtsp-${s.camera_id}"
@@ -92,6 +109,22 @@ async function load() {
             <button class="btn btn-outline-secondary btn-sm" onclick="copy('rtsp-${s.camera_id}')"><i class="bi bi-clipboard"></i></button>
           </div>
           ${!s.rtsp_active ? '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">点击"RTSP 推流"按钮后生效</div>' : ''}
+        </div>
+
+        <!-- WebRTC WHEP 地址 -->
+        <div>
+          <label class="form-label" style="color:var(--text-muted)">
+            WebRTC WHEP 地址
+            <span style="font-size:10px;color:#58a6ff;margin-left:4px">供浏览器直接播放 / ai-detector .env 配置用</span>
+          </label>
+          <div class="d-flex gap-1">
+            <input type="text" class="form-control font-mono" value="${whepUrl(s.rtsp_url)}" readonly id="whep-${s.camera_id}"
+                   style="font-size:12px;color:#58a6ff;background:rgba(255,255,255,.04);border-color:var(--border)">
+            <button class="btn btn-outline-secondary btn-sm" onclick="copy('whep-${s.camera_id}')"><i class="bi bi-clipboard"></i></button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">
+            在 ai-detector 的 .env 中设置 <code>MEDIAMTX_WEBRTC_URL=http://${whepBase(s.rtsp_url)}</code>
+          </div>
         </div>
       </div>
     </div>
