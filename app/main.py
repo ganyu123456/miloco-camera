@@ -1,6 +1,7 @@
 """
 流媒体网关 - FastAPI 应用入口
 """
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -46,10 +47,21 @@ async def lifespan(app: FastAPI):
     from app.services.camera_service import camera_manager
     await camera_manager.start_all_enabled()
 
+    logger.info("Starting token refresh service...")
+    from app.services.token_service import token_refresh_loop
+    token_task = asyncio.create_task(token_refresh_loop(), name="token-refresh")
+
     logger.info("Stream Gateway started")
     yield
 
     # ── 关闭 ──────────────────────────────────────────────────
+    logger.info("Stopping token refresh service...")
+    token_task.cancel()
+    try:
+        await token_task
+    except asyncio.CancelledError:
+        pass
+
     logger.info("Stopping camera streams...")
     from app.services.camera_service import camera_manager
     for state in camera_manager.all_states():
